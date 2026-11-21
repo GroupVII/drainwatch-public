@@ -1,0 +1,2398 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DrainWatch (Public View) - Barangay Suba Drainage & Flood Register</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfeff', 100: '#cffafe', 500: '#06b6d4', 600: '#0891b2', 700: '#0e7490', 800: '#155e75', 900: '#164e63'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Leaflet Draw CSS & JS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+  <style>
+    .drainwatch-map-box { height: 550px; min-height: 550px; }
+    @keyframes waveSlow {
+      0% { transform: translateX(0); }
+      50% { transform: translateX(-25%); }
+      100% { transform: translateX(0); }
+    }
+    @keyframes waveFast {
+      0% { transform: translateX(0); }
+      50% { transform: translateX(-15%); }
+      100% { transform: translateX(0); }
+    }
+    .animate-wave-slow { animation: waveSlow 18s ease-in-out infinite; }
+    .animate-wave-fast { animation: waveFast 10s ease-in-out infinite; }
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.25); opacity: 0.75; }
+    }
+    .notif-pulse { animation: pulseDot 1.8s infinite; }
+    .lightbox-zoomed { transform: scale(1.65); cursor: zoom-out; }
+    .lightbox-normal { transform: scale(1); cursor: zoom-in; }
+  </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase-sync.js"></script>
+</head>
+<body class="bg-cyan-50/40 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-full font-sans transition-colors duration-200 flex flex-col justify-between relative overflow-x-hidden">
+
+  <!-- Background Animated Fluid Waves (Z-0 Background Layer) -->
+  <div class="absolute inset-0 pointer-events-none z-0 overflow-hidden flex flex-col justify-between opacity-30 dark:opacity-20">
+    <div class="w-full h-96 relative">
+      <svg class="absolute top-0 left-0 w-[200%] h-full animate-wave-slow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
+        <path d="M0,0 C150,90 350,-40 500,50 C650,140 900,10 1200,40 L1200,0 L0,0 Z" fill="#06b6d4"></path>
+      </svg>
+      <svg class="absolute top-10 left-0 w-[200%] h-full animate-wave-fast" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
+        <path d="M0,20 C200,100 400,0 600,60 C800,120 1000,20 1200,50 L1200,0 L0,0 Z" fill="#3b82f6" opacity="0.6"></path>
+      </svg>
+    </div>
+    <div class="w-full h-96 relative rotate-180">
+      <svg class="absolute top-0 left-0 w-[200%] h-full animate-wave-slow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
+        <path d="M0,0 C150,90 350,-40 500,50 C650,140 900,10 1200,40 L1200,0 L0,0 Z" fill="#93c5fd"></path>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Top Pop-Up Notification After Report Submission -->
+  <div id="topSubmissionBanner" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-[85] w-[92%] max-w-xl bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl border border-emerald-300 flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2.5 text-xs sm:text-sm font-extrabold">
+      <span>✅</span>
+      <span id="topSubmissionBannerText">The report has been submitted and is waiting for verification.</span>
+    </div>
+    <button type="button" onclick="hideTopSubmissionBanner()" class="text-white/90 hover:text-white font-bold text-xs px-2 py-1 rounded-lg bg-black/15">✕</button>
+  </div>
+
+  <!-- Toast Banner -->
+  <div id="toastBanner" class="hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-[80] bg-slate-900/95 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-2xl border border-cyan-400/50"></div>
+
+  <div class="relative z-10 flex flex-col flex-grow">
+    <!-- Top Header -->
+    <header class="bg-gradient-to-r from-sky-400 via-cyan-500 to-blue-600 text-white shadow-lg sticky top-0 z-30 py-4">
+      <div class="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-3">
+        
+        <!-- Brand & Language Switcher -->
+        <div class="flex items-center space-x-3">
+          <div class="w-11 h-11 rounded-2xl bg-white p-1.5 flex items-center justify-center border border-white/40 shadow-lg overflow-hidden">
+            <svg viewBox="0 0 100 100" class="w-full h-full" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DrainWatch Logo">
+              <defs>
+                <linearGradient id="dwLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#2563eb"></stop>
+                  <stop offset="100%" stop-color="#1d4ed8"></stop>
+                </linearGradient>
+              </defs>
+              <path d="M18 14 H50 C73 14 86 28 86 50 C86 72 73 86 50 86 H18 V52 H30 V74 H50 C65 74 74 65 74 50 C74 35 65 26 50 26 H30 V38 H18 Z" fill="url(#dwLogoGrad)"></path>
+              <path d="M18 42 H34 L46 66 L56 36 L68 62 L81 33 L88 38 L70 74 H62 L55 55 L48 74 H40 L28 52 H18 Z" fill="#1e40af"></path>
+            </svg>
+          </div>
+          <div>
+            <span class="text-[10px] tracking-widest text-cyan-100 font-bold block uppercase" id="hdrSub">City of Danao · Brgy. Suba, Cebu</span>
+            <h1 class="text-lg sm:text-xl font-extrabold tracking-tight text-white drop-shadow" id="hdrTitle">Suba Drainage & Flood Register</h1>
+          </div>
+
+          <!-- Language Switcher Pill -->
+          <div class="relative flex items-center bg-black/20 backdrop-blur-md p-1 rounded-full border border-white/20 ml-1 shadow-inner">
+            <div id="langPill" class="absolute left-1 w-9 h-6 bg-white rounded-full shadow-md transition-transform duration-300"></div>
+            <button type="button" onclick="setLanguage('ENG')" class="relative z-10 w-9 h-6 text-[10px] font-extrabold text-cyan-950 transition-colors" id="btnLangENG">ENG</button>
+            <button type="button" onclick="setLanguage('TAG')" class="relative z-10 w-9 h-6 text-[10px] font-extrabold text-white transition-colors" id="btnLangTAG">TAG</button>
+            <button type="button" onclick="setLanguage('CEB')" class="relative z-10 w-9 h-6 text-[10px] font-extrabold text-white transition-colors" id="btnLangCEB">CEB</button>
+          </div>
+        </div>
+
+        <!-- Right Controls: Public Notification Bell, Hotline & Dark Mode Switcher -->
+        <div class="flex items-center space-x-2 md:space-x-3 text-xs relative">
+          <span class="hidden xl:inline-block text-cyan-100 font-medium">10.5247°N, 124.0285°E</span>
+
+          <!-- Public View Top-Right Notification / Message Button & Popover -->
+          <div id="publicNotifWrapper" class="relative">
+            <button id="publicNotifBtn" type="button" onclick="toggleNotifPopover(event)" title="My Submitted Reports & Updates"
+              class="relative p-2 bg-amber-400 hover:bg-amber-300 text-slate-900 rounded-full border-2 border-white shadow-md active:scale-95 transition-transform duration-150 flex items-center justify-center">
+              <span class="text-sm leading-none">🔔</span>
+              <span id="publicNotifBadge" class="hidden absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center border border-white notif-pulse">0</span>
+            </button>
+
+            <!-- Notification Popover Box Directly Below Icon -->
+            <div id="publicNotifPopover" class="hidden absolute right-0 mt-2.5 w-80 sm:w-96 max-w-[92vw] bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-3xl shadow-2xl border border-cyan-200 dark:border-slate-700 z-50 overflow-hidden">
+              <div class="px-4 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 text-white flex items-center justify-between">
+                <div>
+                  <h4 class="font-bold text-xs uppercase tracking-wider">Submitted Reports & Status</h4>
+                  <p class="text-[10px] text-cyan-100">Tap any report to view full details & photos</p>
+                </div>
+                <button type="button" onclick="closeNotifPopover()" class="text-white/80 hover:text-white text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10">✕</button>
+              </div>
+              <div id="publicNotifList" class="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/70 p-2 space-y-1.5">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <button id="hotlineBtn" type="button" onclick="openHotlineModal()"
+            class="bg-amber-400 hover:bg-amber-300 text-slate-900 font-extrabold px-3.5 py-2 rounded-full shadow-md active:scale-95 transition-transform duration-150 flex items-center space-x-1.5 border border-white">
+            <span>📞</span>
+            <span class="text-[11px] uppercase tracking-wide" id="txtHotlineBtn">Hotline</span>
+          </button>
+
+          <button type="button" onclick="toggleDarkMode()" class="relative flex items-center bg-slate-800/80 hover:bg-slate-700 p-1 rounded-full border border-slate-600 w-16 h-8 transition-colors shadow">
+            <div id="themePill" class="absolute left-1 w-6 h-6 bg-cyan-400 rounded-full shadow-md flex items-center justify-center text-xs transition-transform duration-300">
+              ☀️
+            </div>
+            <div class="w-full flex justify-between px-2 text-[10px] pointer-events-none">
+              <span>☀️</span>
+              <span>🌙</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Banner & Stat Cards Header -->
+    <section class="max-w-7xl mx-auto px-4 pt-6 w-full">
+      <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
+        <div>
+          <div class="flex items-center space-x-3 mb-1">
+            <span class="inline-block px-3 py-1 bg-cyan-600 text-white rounded-full text-[11px] font-extrabold tracking-wider uppercase shadow-sm" id="badgeNetwork">
+              Barangay Suba Network Status
+            </span>
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.7)] animate-pulse" id="badgeVerified">
+              ● LGU Verified
+            </span>
+          </div>
+          <h2 id="viewHeading" class="text-2xl font-serif font-extrabold text-slate-900 dark:text-white">Barangay Suba drainage network</h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5" id="txtSubaVerified">Verified by City ENRO & Brgy. Suba Council</p>
+        </div>
+        <div class="flex items-center gap-2.5 self-start md:self-auto">
+          <div class="bg-white dark:bg-slate-800 px-4 py-2 rounded-2xl shadow-sm border border-cyan-100 dark:border-slate-700 text-right backdrop-blur-md">
+            <span class="text-[10px] text-slate-400 font-bold block uppercase" id="txtLastSync">Last Field Sync</span>
+            <span id="lastSyncTimestamp" class="text-sm font-bold text-cyan-600 dark:text-cyan-400">Oct 27, 2026 - 11:54 PM</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-4 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-md">
+          <span class="text-[11px] font-bold text-slate-400 block uppercase" id="lblSegments">Segments on Register</span>
+          <span class="text-2xl font-extrabold text-slate-800 dark:text-slate-100" id="statSegments">7</span>
+          <span class="text-[11px] text-slate-500 block" id="subSegments">Barangay Suba network</span>
+        </div>
+        <div class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-4 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-md">
+          <span class="text-[11px] font-bold text-slate-400 block uppercase" id="lblMappedLength">Mapped Length</span>
+          <span class="text-2xl font-extrabold text-slate-800 dark:text-slate-100" id="statLength">3.39 km</span>
+          <span class="text-[11px] text-slate-500 block" id="subMappedLength">Street-aligned lines</span>
+        </div>
+        <div class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-4 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-md">
+          <span class="text-[11px] font-bold text-slate-400 block uppercase" id="lblClearFlow">Clear Flow</span>
+          <span class="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400" id="statClear">2</span>
+          <span class="text-[11px] text-emerald-600 dark:text-emerald-400 block" id="subClearFlow">● No obstruction recorded</span>
+        </div>
+        <div class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-4 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-md">
+          <span class="text-[11px] font-bold text-slate-400 block uppercase" id="lblNeedsAttention">Needs Attention</span>
+          <span class="text-2xl font-extrabold text-rose-500 dark:text-rose-400" id="statAttention">5</span>
+          <span class="text-[11px] text-rose-500 dark:text-rose-400 block" id="statAttentionDetail">● 3 blocked · 2 silted</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content Layout -->
+    <main id="mainGrid" class="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-12 gap-6 mb-12 items-start w-full">
+      
+      <!-- Left Map & Legend Column (7 Cols on Desktop) -->
+      <div id="leftColumn" class="lg:col-span-7 flex flex-col gap-3 w-full min-w-0">
+        <div id="mapCard" class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-3 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-lg w-full">
+          <div id="map" class="w-full drainwatch-map-box rounded-2xl overflow-hidden z-10"></div>
+        </div>
+
+        <!-- Condition Legend Card (Flush Directly Below Map with Exact Same Width) -->
+        <div id="conditionLegendCard" class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-5 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-lg w-full">
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider" id="lblConditionHeading">Condition</span>
+            <select id="legendFilter" onchange="filterMapByCondition(this.value)" class="text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none">
+              <option value="All" id="optAll">All ▼</option>
+              <option value="Clear" id="optClear">Clear</option>
+              <option value="Silted" id="optSilted">Silted</option>
+              <option value="Blocked" id="optBlocked">Blocked</option>
+              <option value="Repair" id="optRepair">Under Maintenance</option>
+              <option value="Structural" id="optStructural">Structurally Failed</option>
+            </select>
+          </div>
+          
+          <div class="space-y-3 text-sm">
+            <div class="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-700/50">
+              <div class="flex items-center space-x-2"><span class="w-4 h-2 rounded-full bg-emerald-500 inline-block"></span><span class="font-semibold text-slate-700 dark:text-slate-200" id="lgClear">Clear</span></div>
+              <span class="font-bold text-slate-600 dark:text-slate-300" id="countClear">2</span>
+            </div>
+            <div class="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-700/50">
+              <div class="flex items-center space-x-2"><span class="w-4 h-2 rounded-full bg-amber-500 inline-block"></span><span class="font-semibold text-slate-700 dark:text-slate-200" id="lgSilted">Silted</span></div>
+              <span class="font-bold text-slate-600 dark:text-slate-300" id="countSilted">2</span>
+            </div>
+            <div class="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-700/50">
+              <div class="flex items-center space-x-2"><span class="w-4 h-2 rounded-full bg-rose-500 inline-block"></span><span class="font-semibold text-slate-700 dark:text-slate-200" id="lgBlocked">Blocked</span></div>
+              <span class="font-bold text-slate-600 dark:text-slate-300" id="countBlocked">3</span>
+            </div>
+            <div class="flex items-center justify-between py-1.5 border-b border-slate-100 dark:border-slate-700/50">
+              <div class="flex items-center space-x-2"><span class="w-4 h-2 rounded-full bg-blue-500 inline-block"></span><span class="font-semibold text-slate-700 dark:text-slate-200" id="lgRepair">Under Maintenance</span></div>
+              <span class="font-bold text-slate-600 dark:text-slate-300" id="countRepair">0</span>
+            </div>
+            <div class="flex items-center justify-between py-1.5">
+              <div class="flex items-center space-x-2"><span class="w-4 h-2 rounded-full bg-purple-500 inline-block"></span><span class="font-semibold text-slate-700 dark:text-slate-200" id="lgStructural">Structurally Failed</span></div>
+              <span class="font-bold text-slate-600 dark:text-slate-300" id="countStructural">0</span>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-400" id="txtLegendNote">
+            Line width scales with canal length. Tap a segment for details.
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Sidebar Column (5 Cols on Desktop) -->
+      <div id="rightColumn" class="lg:col-span-5 flex flex-col w-full min-w-0">
+        
+        <!-- PUBLIC VIEW SIDEBAR -->
+        <div id="publicSidebar" class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-md p-6 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-lg flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="font-bold text-base text-slate-800 dark:text-slate-100" id="hdrSegmentRegister">Registered Segments</h3>
+              <span class="text-xs text-slate-400 font-medium" id="txtMappedChannels">Mapped channels</span>
+            </div>
+
+            <div id="publicChannelList" class="space-y-3 overflow-hidden"></div>
+
+            <!-- Selected Segment Detail Card in Public View (with clickable photo(s) to enlarge & swipe) -->
+            <div id="publicSelectedDetailCard" class="hidden mt-4 p-4 rounded-2xl bg-cyan-50/80 dark:bg-slate-900/90 border border-cyan-200 dark:border-slate-700 shadow-sm">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <span id="pubDetailBadge" class="text-[10px] font-extrabold text-cyan-700 dark:text-cyan-400 uppercase block"></span>
+                  <h4 id="pubDetailTitle" class="font-bold text-sm text-slate-800 dark:text-slate-100"></h4>
+                </div>
+                <button type="button" onclick="closePublicDetailCard()" class="text-xs font-bold text-slate-400 hover:text-slate-700 dark:hover:text-white px-2 py-0.5 rounded-lg">✕</button>
+              </div>
+              <div id="pubDetailPhotos" class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2.5"></div>
+              <div class="grid grid-cols-2 gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 mb-2">
+                <div><b>Status:</b> <span id="pubDetailStatus"></span></div>
+                <div><b>Length:</b> <span id="pubDetailLength"></span></div>
+                <div><b>Dimensions:</b> <span id="pubDetailDimensions"></span></div>
+                <div><b>Area:</b> <span id="pubDetailCrossArea"></span></div>
+              </div>
+              <p id="pubDetailNotes" class="text-[11px] text-slate-500 dark:text-slate-400 italic mb-3"></p>
+              <button type="button" onclick="openSegmentFullDetailsModal()" class="w-full py-2 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-extrabold shadow-sm transition">
+                View Full Details & Timeline
+              </button>
+            </div>
+          </div>
+
+          <!-- Pagination Controls -->
+          <div class="flex items-center justify-between pt-4 mt-4 border-t border-slate-100 dark:border-slate-700">
+            <button type="button" id="prevPageBtn" onclick="changePage(-1)" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 hover:bg-cyan-500 hover:text-white disabled:opacity-40 transition">Previous</button>
+            <span id="pageIndicator" class="text-xs font-semibold text-slate-500">Page 1 of 1</span>
+            <button type="button" id="nextPageBtn" onclick="changePage(1)" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 hover:bg-cyan-500 hover:text-white disabled:opacity-40 transition">Next</button>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="relative z-10 py-6 border-t border-cyan-100 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-700 dark:text-cyan-100 font-semibold">
+      <p id="ftrTitle">DrainWatch WebGIS Platform · Barangay Suba, Danao City, Cebu</p>
+      <p class="mt-1 text-[11px] text-slate-500 dark:text-cyan-200" id="ftrSub">Maintained by City ENRO & Barangay Engineering Office</p>
+    </div>
+  </footer>
+
+  <!-- Floating Report Issue Button (Public View Only, Red ! Icon) -->
+  <button type="button" id="floatingReportBtn" onclick="openReportModal()" class="fixed bottom-6 right-6 z-40 bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-900 font-bold px-5 py-3.5 rounded-full shadow-2xl flex items-center space-x-2 border-2 border-white transition-transform duration-150">
+    <span class="text-red-600 font-black text-base leading-none drop-shadow-sm">!</span>
+    <span class="text-xs font-extrabold uppercase tracking-wide" id="txtReportBtn">Report an Issue</span>
+  </button>
+
+  <!-- Citizen Issue Report Modal -->
+  <div id="reportModal" class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl border border-cyan-100 dark:border-slate-700">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg text-slate-800 dark:text-white" id="mdlReportTitle">Submit Drainage Concern</h3>
+        <button type="button" onclick="closeReportModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-white text-lg font-bold">✕</button>
+      </div>
+
+      <form onsubmit="submitCitizenReport(event)" class="space-y-3.5">
+        <!-- Structured Searchable Address Fields for Barangay Suba -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Barangay</label>
+            <input type="text" id="reportBarangay" list="subaBarangayList" value="Suba" onchange="handleAddressLocationChange()" oninput="handleAddressLocationChange()" placeholder="Search Barangay" class="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" required />
+            <datalist id="subaBarangayList">
+              <option value="Suba"></option>
+            </datalist>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Purok</label>
+            <input type="text" id="reportPurok" list="subaPurokList" onchange="handleAddressLocationChange()" oninput="handleAddressLocationChange()" placeholder="Search Purok" class="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" required />
+            <datalist id="subaPurokList">
+              <option value="Purok 1 (Suba Proper)"></option>
+              <option value="Purok 2 (Riverside)"></option>
+              <option value="Purok 3 (Chapel Area)"></option>
+              <option value="Purok 4 (School Zone)"></option>
+              <option value="Purok 5 (Central Suba)"></option>
+              <option value="Purok 6 (Coastal Baybayon)"></option>
+              <option value="Purok 7 (Market Access)"></option>
+              <option value="Purok 8 (Lower Suba)"></option>
+              <option value="Purok 9 (Hillside Cut-off)"></option>
+            </datalist>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Street</label>
+            <input type="text" id="reportStreet" list="subaStreetList" onchange="handleAddressLocationChange()" oninput="handleAddressLocationChange()" placeholder="Search Street" class="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" required />
+            <datalist id="subaStreetList">
+              <option value="C.M. Enriquez Street"></option>
+              <option value="F. Ralota Street"></option>
+              <option value="M.H. del Pilar Street"></option>
+              <option value="Suba Riverbank Road"></option>
+              <option value="Suba Coastal Road"></option>
+              <option value="Bonifacio Street"></option>
+              <option value="Rizal Street"></option>
+              <option value="Market Access Road"></option>
+            </datalist>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-slate-500 mb-1">Other Landmarks / Specific Spot</label>
+          <input type="text" id="reportLandmark" onchange="handleAddressLocationChange()" oninput="handleAddressLocationChange()" placeholder="e.g. Near Purok 3 Chapel, Suba Hall, or Elementary School" class="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-500 mb-1">Problem Description</label>
+          <textarea id="reportDesc" rows="2" placeholder="Describe obstruction, overflow, or structural damage..." class="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100" required></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-500 mb-1">Upload Reference Photos (Multiple Allowed)</label>
+          <input type="file" id="reportPhoto" accept="image/*" multiple onchange="handleCitizenPhotoSelection(event)" class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100" />
+          <div id="reportPhotoPreviewStrip" class="flex flex-wrap gap-2 mt-2"></div>
+        </div>
+
+        <div class="bg-cyan-50 dark:bg-slate-900 p-3 rounded-2xl border border-cyan-200 dark:border-slate-700">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs font-bold text-cyan-700 dark:text-cyan-400">📍 Pin Exact Map Location (TopoExport)</span>
+            <button type="button" onclick="openFullscreenPinModal()" class="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-extrabold shadow-sm transition">
+              ⤢ Enlarge Map
+            </button>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-500 mb-2">
+            <span>Tap or drag marker to fine-tune location:</span>
+            <span id="pinnedCoordsBadge" class="font-mono font-bold text-cyan-700 dark:text-cyan-300">10.5247, 124.0285</span>
+          </div>
+          <div id="miniPinMap" class="w-full h-36 rounded-xl border border-slate-300 z-10"></div>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" onclick="closeReportModal()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md">Submit Concern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Segment Full Details & Reverse-Chronological History Modal -->
+  <div id="segmentFullDetailsModal" class="hidden fixed inset-0 z-[65] bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-2xl shadow-2xl border border-cyan-100 dark:border-slate-700 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-start gap-3 pb-3 border-b border-slate-100 dark:border-slate-700">
+        <div>
+          <span id="fullSegIdBadge" class="inline-block text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200 uppercase mb-1">SUB-00</span>
+          <h3 id="fullSegName" class="font-bold text-lg text-slate-800 dark:text-white">Segment Name</h3>
+        </div>
+        <button type="button" onclick="closeSegmentFullDetailsModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-white text-lg font-bold">✕</button>
+      </div>
+
+      <!-- Section 1: Engineering & Inspection Details -->
+      <div class="space-y-2">
+        <h4 class="text-xs font-extrabold uppercase tracking-wider text-cyan-700 dark:text-cyan-400">1. Segment Specifications & Inspection Details</h4>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400 block">Condition Status</span>
+            <span id="fullSegStatus" class="font-extrabold text-cyan-700 dark:text-cyan-300">—</span>
+          </div>
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400 block">Mapped Length</span>
+            <span id="fullSegLength" class="font-bold text-slate-700 dark:text-slate-200">—</span>
+          </div>
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400 block">Culvert Dimensions</span>
+            <span id="fullSegDimensions" class="font-bold text-slate-700 dark:text-slate-200">—</span>
+          </div>
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400 block">Cross-Sectional Area</span>
+            <span id="fullSegCrossArea" class="font-bold text-slate-700 dark:text-slate-200">—</span>
+          </div>
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400 block">Last Inspected / Updated</span>
+            <span id="fullSegLastCheck" class="font-bold text-slate-700 dark:text-slate-200">—</span>
+          </div>
+          <div>
+            <span class="text-[10px] font-bold uppercase text-slate-400 block">Inspector / Officer</span>
+            <span id="fullSegOfficer" class="font-bold text-emerald-700 dark:text-emerald-400">—</span>
+          </div>
+        </div>
+        <p id="fullSegNotes" class="text-xs text-slate-600 dark:text-slate-300 bg-cyan-50/60 dark:bg-slate-900/60 p-3 rounded-2xl border border-cyan-100 dark:border-slate-700 italic"></p>
+      </div>
+
+      <!-- Section 2: Current Segment Photos -->
+      <div class="space-y-2">
+        <h4 class="text-xs font-extrabold uppercase tracking-wider text-cyan-700 dark:text-cyan-400">2. Current Segment Photos (Tap to Enlarge / Swipe)</h4>
+        <div id="fullSegCurrentPhotos" class="flex flex-wrap gap-2.5"></div>
+      </div>
+
+      <!-- Section 3: Reverse-Chronological History / Timeline -->
+      <div class="space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-extrabold uppercase tracking-wider text-cyan-700 dark:text-cyan-400">3. History & Update Timeline (Latest First)</h4>
+          <span class="text-[10px] font-bold text-slate-400 uppercase">Reverse Chronological</span>
+        </div>
+        <div id="fullSegTimelineList" class="space-y-3"></div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button type="button" onclick="closeSegmentFullDetailsModal()" class="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Citizen Report Full Detail & Photo Modal (Opened from Public Notification Box) -->
+  <div id="reportDetailModal" onclick="event.stopPropagation()" class="hidden fixed inset-0 z-[60] bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div onclick="event.stopPropagation()" class="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-cyan-100 dark:border-slate-700 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-start gap-3">
+        <div>
+          <span id="detailReportIdBadge" class="inline-block text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200 uppercase mb-1">REP-000</span>
+          <h3 id="detailReportLocation" class="font-bold text-lg text-slate-800 dark:text-white">Report Location</h3>
+        </div>
+        <button type="button" onclick="event.stopPropagation(); closeReportDetailModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-white text-lg font-bold">✕</button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
+        <div>
+          <span class="text-[10px] font-bold uppercase text-slate-400 block">Date Submitted</span>
+          <span id="detailReportDate" class="font-bold text-slate-700 dark:text-slate-200">—</span>
+        </div>
+        <div>
+          <span class="text-[10px] font-bold uppercase text-slate-400 block">Current Status</span>
+          <span id="detailReportStatus" class="font-extrabold text-cyan-600 dark:text-cyan-400">—</span>
+        </div>
+        <div>
+          <span class="text-[10px] font-bold uppercase text-slate-400 block">Verification Status</span>
+          <span id="detailReportVerified" class="font-bold">—</span>
+        </div>
+        <div>
+          <span class="text-[10px] font-bold uppercase text-slate-400 block">Date / Time Verified</span>
+          <span id="detailReportVerifiedAt" class="font-semibold text-slate-700 dark:text-slate-200">—</span>
+        </div>
+        <div class="col-span-2">
+          <span class="text-[10px] font-bold uppercase text-slate-400 block">Verified By</span>
+          <span id="detailReportVerifiedBy" class="font-bold text-emerald-700 dark:text-emerald-400">—</span>
+        </div>
+      </div>
+
+      <div>
+        <span class="text-[11px] font-bold uppercase text-slate-400 block mb-1">Description & Inspector Remarks</span>
+        <p id="detailReportDesc" class="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-2xl border border-slate-100 dark:border-slate-700"></p>
+      </div>
+
+      <div>
+        <span class="text-[11px] font-bold uppercase text-slate-400 block mb-1.5">Submitted Photos (Tap to Enlarge / Swipe)</span>
+        <div id="detailReportPhotos" class="flex flex-wrap gap-2.5"></div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button type="button" onclick="event.stopPropagation(); closeReportDetailModal()" class="px-5 py-2 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md">Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Photo Gallery Lightbox Modal (Next / Previous / Swipe / Click Enlarge / Exit) -->
+  <div id="photoLightboxModal" class="hidden fixed inset-0 z-[70] bg-slate-950/95 backdrop-blur-md flex flex-col justify-between p-4 sm:p-6 select-none">
+    <!-- Top Bar: Counter & Exit Button -->
+    <div class="flex items-center justify-between text-white z-20">
+      <div class="flex items-center gap-3">
+        <span id="lightboxTitle" class="text-xs sm:text-sm font-bold text-cyan-300">Drainage Photo</span>
+        <span id="lightboxCounter" class="px-2.5 py-0.5 rounded-full bg-white/15 text-xs font-bold">1 / 1</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button" onclick="toggleLightboxZoom()" class="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-xs font-bold transition">
+          🔍 Enlarge / Reset
+        </button>
+        <button type="button" onclick="closePhotoLightbox()" class="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold shadow-lg transition">
+          ✕ Exit
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Image Stage with Prev / Next / Touch & Mouse Swipe -->
+    <div id="lightboxStage" class="relative flex-1 flex items-center justify-center overflow-hidden my-3"
+      onclick="handleLightboxBackdropClick(event)"
+      ontouchstart="handleLightboxTouchStart(event)"
+      ontouchend="handleLightboxTouchEnd(event)"
+      onmousedown="handleLightboxMouseDown(event)"
+      onmouseup="handleLightboxMouseUp(event)">
+
+      <button id="lightboxPrevBtn" type="button" onclick="event.stopPropagation(); stepLightboxPhoto(-1)"
+        class="z-20 absolute left-2 sm:left-4 w-11 h-11 rounded-full bg-slate-900/80 hover:bg-cyan-600 text-white border border-white/25 flex items-center justify-center text-lg font-bold shadow-xl transition">
+        ‹
+      </button>
+
+      <img id="lightboxImage" src="" alt="Enlarged Drainage Photo" onclick="event.stopPropagation(); toggleLightboxZoom()"
+        class="max-h-[72vh] max-w-[88vw] object-contain rounded-2xl shadow-2xl transition-transform duration-200 lightbox-normal" />
+
+      <button id="lightboxNextBtn" type="button" onclick="event.stopPropagation(); stepLightboxPhoto(1)"
+        class="z-20 absolute right-2 sm:right-4 w-11 h-11 rounded-full bg-slate-900/80 hover:bg-cyan-600 text-white border border-white/25 flex items-center justify-center text-lg font-bold shadow-xl transition">
+        ›
+      </button>
+    </div>
+
+    <!-- Bottom Caption & Thumbnails -->
+    <div class="text-center text-white space-y-2 z-20">
+      <p id="lightboxCaption" class="text-xs text-slate-300">Click image to enlarge • Swipe or use arrows for Next / Previous • Press Esc or Exit to close</p>
+      <div id="lightboxThumbnails" class="flex items-center justify-center gap-2 flex-wrap"></div>
+    </div>
+  </div>
+
+  <!-- Full-Screen Map Pinning Modal (Pop-up on whole screen with exit option) -->
+  <div id="fullscreenPinModal" class="hidden fixed inset-0 z-[60] bg-slate-900/90 backdrop-blur-md flex flex-col p-3 sm:p-5">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl border border-cyan-100 dark:border-slate-700 shadow-2xl flex flex-col w-full h-full overflow-hidden">
+      <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 bg-cyan-50/70 dark:bg-slate-900/80">
+        <div>
+          <h4 class="font-extrabold text-sm sm:text-base text-slate-800 dark:text-white">📍 Full-Screen Location Pinning — Brgy. Suba, Danao City</h4>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Tap anywhere on the map or drag the marker to pinpoint the exact drainage issue location.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span id="fullscreenCoordsBadge" class="hidden sm:inline-block px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-mono font-bold text-cyan-700 dark:text-cyan-300">10.5247, 124.0285</span>
+          <button type="button" onclick="closeFullscreenPinModal()" class="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-extrabold shadow-md transition">
+            ✓ Confirm & Exit
+          </button>
+          <button type="button" onclick="closeFullscreenPinModal()" aria-label="Exit full screen map" class="px-3 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-extrabold shadow-md transition">
+            ✕ Exit
+          </button>
+        </div>
+      </div>
+      <div class="flex-1 w-full relative">
+        <div id="fullscreenPinMap" class="w-full h-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Danao City & Brgy. Suba Emergency Hotline Modal -->
+  <div id="hotlineModal" class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-cyan-100 dark:border-slate-700">
+      <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-slate-700">
+        <div class="flex items-center space-x-2">
+          <span class="text-xl">📞</span>
+          <div>
+            <h3 class="font-extrabold text-base text-slate-800 dark:text-white" id="htlModalTitle">Emergency Hotlines</h3>
+            <span class="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold uppercase tracking-wider">Danao City · Barangay Suba</span>
+          </div>
+        </div>
+        <button type="button" onclick="closeHotlineModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-lg">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="p-3 bg-cyan-50 dark:bg-slate-900/80 rounded-2xl border border-cyan-100 dark:border-slate-700 flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-slate-800 dark:text-slate-100">Danao CDRRMO / Rescue</h4>
+            <span class="text-[11px] text-slate-500">Disaster Risk Reduction Office</span>
+          </div>
+          <a href="tel:0322003000" class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-extrabold shadow-sm transition">(032) 200-3000</a>
+        </div>
+
+        <div class="p-3 bg-cyan-50 dark:bg-slate-900/80 rounded-2xl border border-cyan-100 dark:border-slate-700 flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-slate-800 dark:text-slate-100">Barangay Suba Hall</h4>
+            <span class="text-[11px] text-slate-500">Brgy Disaster Desk</span>
+          </div>
+          <a href="tel:09175557822" class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-extrabold shadow-sm transition">0917-555-SUBA</a>
+        </div>
+
+        <div class="p-3 bg-cyan-50 dark:bg-slate-900/80 rounded-2xl border border-cyan-100 dark:border-slate-700 flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-slate-800 dark:text-slate-100">Danao City Police Station</h4>
+            <span class="text-[11px] text-slate-500">Emergency & Security</span>
+          </div>
+          <a href="tel:0322002222" class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-extrabold shadow-sm transition">(032) 200-2222</a>
+        </div>
+
+        <div class="p-3 bg-cyan-50 dark:bg-slate-900/80 rounded-2xl border border-cyan-100 dark:border-slate-700 flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-slate-800 dark:text-slate-100">Danao Fire Station (BFP)</h4>
+            <span class="text-[11px] text-slate-500">Fire & Emergency Response</span>
+          </div>
+          <a href="tel:0322003473" class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-extrabold shadow-sm transition">(032) 200-FIRE</a>
+        </div>
+
+        <div class="p-3 bg-cyan-50 dark:bg-slate-900/80 rounded-2xl border border-cyan-100 dark:border-slate-700 flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-slate-800 dark:text-slate-100">Danao District Hospital</h4>
+            <span class="text-[11px] text-slate-500">Medical Emergency Room</span>
+          </div>
+          <a href="tel:0322004444" class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-extrabold shadow-sm transition">(032) 200-4444</a>
+        </div>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700 text-center">
+        <button type="button" onclick="closeHotlineModal()" class="px-6 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript App Logic -->
+  <script>
+    let currentMode = 'public';
+    let currentPage = 1;
+    let itemsPerPage = 7;
+    let isPreviewingCitizen = false;
+    let selectedSegmentId = null;
+    let map, miniMap, fullscreenMiniMap, drawControl, currentPinMarker, fullscreenPinMarker, drawnItems;
+    let drawControlActive = false;
+    let polylines = {};
+    let pinnedReportMarker = null;
+    let tempPinCoords = [10.5247, 124.0285];
+
+    // Lightbox state
+    let lightboxPhotos = [];
+    let lightboxIndex = 0;
+    let lightboxZoomed = false;
+    let touchStartX = 0;
+    let mouseStartX = 0;
+
+    // Pending citizen photos & active inspector photos
+    let pendingReportPhotos = [];
+    let activeEditorPhotos = [];
+
+    const statusColors = {
+      'Clear': '#10B981',
+      'Silted': '#F59E0B',
+      'Blocked': '#EF4444',
+      'Repair': '#3B82F6',
+      'Structural': '#8B5CF6'
+    };
+
+    function formatConditionLabel(status) {
+      if (status === 'Repair') return 'Under Maintenance';
+      if (status === 'Structural') return 'Structurally Failed';
+      return status || 'Clear';
+    }
+
+    const subaAddressCoordinates = {
+      'suba': [10.5247, 124.0285],
+      'purok 1': [10.5248, 124.0284],
+      'purok 2': [10.5244, 124.0284],
+      'purok 3': [10.5250, 124.0282],
+      'purok 4': [10.5220, 124.0275],
+      'purok 5': [10.5242, 124.0280],
+      'purok 6': [10.5270, 124.0308],
+      'purok 7': [10.5236, 124.0273],
+      'purok 8': [10.5258, 124.0294],
+      'purok 9': [10.5225, 124.0267],
+      'enriquez': [10.5237, 124.0272],
+      'ralota': [10.5241, 124.0278],
+      'del pilar': [10.5233, 124.0282],
+      'riverbank': [10.5255, 124.0290],
+      'coastal': [10.5270, 124.0308],
+      'bonifacio': [10.5246, 124.0276],
+      'rizal': [10.5239, 124.0286],
+      'market': [10.5235, 124.0272],
+      'chapel': [10.5250, 124.0282],
+      'school': [10.5220, 124.0275],
+      'hall': [10.5247, 124.0285]
+    };
+
+    const translations = {
+      ENG: {
+        viewHeading: "Barangay Suba drainage network",
+        badgeNetwork: "Barangay Suba Network Status",
+        txtSubaVerified: "Verified by City ENRO & Brgy. Suba Council",
+        txtLastSync: "Last Field Sync",
+        lblSegments: "Segments on Register",
+        lblMappedLength: "Mapped Length",
+        lblClearFlow: "Clear Flow",
+        lblNeedsAttention: "Needs Attention",
+        hdrSegmentRegister: "Registered Segments",
+        txtMappedChannels: "Mapped channels",
+        txtReportBtn: "Report an Issue",
+        txtHotlineBtn: "Hotline",
+        lblConditionHeading: "Condition",
+        txtLegendNote: "Line width scales with canal length. Tap a segment for details."
+      },
+      TAG: {
+        viewHeading: "Network ng Daluyan sa Barangay Suba",
+        badgeNetwork: "Katayuan ng Network sa Brgy. Suba",
+        txtSubaVerified: "Beripikado ng City ENRO at Konseho ng Brgy. Suba",
+        txtLastSync: "Huling Update sa Field",
+        lblSegments: "Mga Nakalistang Kanal",
+        lblMappedLength: "Haba ng Namapa",
+        lblClearFlow: "Maayos na Daloy",
+        lblNeedsAttention: "Nangangailangan ng Pansin",
+        hdrSegmentRegister: "Talaan ng mga Kanal",
+        txtMappedChannels: "Namapang daluyan",
+        txtReportBtn: "Mag-ulat ng Problema",
+        txtHotlineBtn: "Hotline",
+        lblConditionHeading: "Kalagayan",
+        txtLegendNote: "Pindutin ang linya sa mapa para makita ang buong detalye."
+      },
+      CEB: {
+        viewHeading: "Sistema sa Kanal sa Barangay Suba",
+        badgeNetwork: "Kahimtang sa Kanal sa Brgy. Suba",
+        txtSubaVerified: "Giberipikar sa City ENRO ug Konseho sa Brgy. Suba",
+        txtLastSync: "Katapusang Update sa Field",
+        lblSegments: "Nakarehistrong Kanal",
+        lblMappedLength: "Gitas-on sa Namapa",
+        lblClearFlow: "Hapsay ang Agas",
+        lblNeedsAttention: "Nagkinahanglan og Atensyon",
+        hdrSegmentRegister: "Listahan sa mga Kanal",
+        txtMappedChannels: "Namapang agianan",
+        txtReportBtn: "I-report ang Problema",
+        txtHotlineBtn: "Hotline",
+        lblConditionHeading: "Kahimtang",
+        txtLegendNote: "Pislita ang linya sa mapa aron makita ang kompletong detalye."
+      }
+    };
+
+    function setLanguage(lang) {
+      const pill = document.getElementById('langPill');
+      const btnENG = document.getElementById('btnLangENG');
+      const btnTAG = document.getElementById('btnLangTAG');
+      const btnCEB = document.getElementById('btnLangCEB');
+
+      [btnENG, btnTAG, btnCEB].forEach(b => {
+        if (b) {
+          b.classList.remove('text-cyan-950');
+          b.classList.add('text-white');
+        }
+      });
+
+      if (lang === 'ENG') {
+        if (pill) pill.style.transform = 'translateX(0px)';
+        if (btnENG) { btnENG.classList.remove('text-white'); btnENG.classList.add('text-cyan-950'); }
+      } else if (lang === 'TAG') {
+        if (pill) pill.style.transform = 'translateX(36px)';
+        if (btnTAG) { btnTAG.classList.remove('text-white'); btnTAG.classList.add('text-cyan-950'); }
+      } else {
+        if (pill) pill.style.transform = 'translateX(72px)';
+        if (btnCEB) { btnCEB.classList.remove('text-white'); btnCEB.classList.add('text-cyan-950'); }
+      }
+
+      const dict = translations[lang] || translations.ENG;
+      Object.keys(dict).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = dict[id];
+      });
+    }
+
+    const defaultSegmentPhotos = (id, label) => ([
+      {
+        url: `https://placehold.co/800x520/0e7490/ffffff?text=${encodeURIComponent(id + ' - Front View')}`,
+        caption: `${id} (${label}) — Upstream / street view`
+      },
+      {
+        url: `https://placehold.co/800x520/155e75/e0f2fe?text=${encodeURIComponent(id + ' - Culvert & Flow')}`,
+        caption: `${id} (${label}) — Culvert interior & flow check`
+      }
+    ]);
+
+    function getSegmentPhotos(item) {
+      if (!item) return [];
+      if (Array.isArray(item.photos) && item.photos.length > 0) {
+        return item.photos.map((p, idx) =>
+          typeof p === 'string'
+            ? { url: p, caption: `${item.id || 'Item'} · Photo ${idx + 1}` }
+            : { url: p.url, caption: p.caption || `${item.id || 'Item'} · Photo ${idx + 1}` }
+        );
+      }
+      if (item.photo) {
+        return [{ url: item.photo, caption: `${item.id || 'Item'} · Photo 1` }];
+      }
+      return [];
+    }
+
+    function buildDefaultHistory(seg) {
+      const photos = getSegmentPhotos(seg);
+      const basePhoto = photos.length > 0 ? [photos[0]] : [{ url: `https://placehold.co/800x520/0e7490/ffffff?text=${encodeURIComponent(seg.id + ' - Initial')}`, caption: `${seg.id} Initial Record` }];
+      const latestPhoto = photos.length > 0 ? [...photos] : basePhoto;
+
+      return [
+        {
+          stage: 'Drainage System Update',
+          date: seg.lastCheck || 'Oct 24, 2026',
+          by: seg.officer || 'City ENRO Inspector',
+          status: formatConditionLabel(seg.status),
+          notes: seg.notes || 'Inspector updated drainage condition and record.',
+          photos: latestPhoto
+        },
+        {
+          stage: 'Verified by Inspector',
+          date: 'Oct 15, 2026',
+          by: seg.officer || 'City ENRO Verification Team',
+          status: 'Verified',
+          notes: `Site inspection verified for ${seg.name} (${seg.dimensions || 'Standard'}).`,
+          photos: basePhoto
+        },
+        {
+          stage: 'Date Reported / Logged',
+          date: 'Oct 10, 2026',
+          by: 'Brgy. Suba / Citizen Report Log',
+          status: 'Reported',
+          notes: `Initial drainage entry logged for ${seg.name}.`,
+          photos: basePhoto
+        }
+      ];
+    }
+
+    let segments = [
+      {
+        id: "SUB-01", name: "Suba Riverbank Outfall – Section A", status: "Blocked", length: "728 m", crossArea: "1.80 sq.m", dimensions: "1.5m Box Culvert", officer: "ENRO Team A", lastCheck: "Oct 24, 2026", notes: "Heavy siltation and plastic blockage at river outlet.", coords: [[10.5245, 124.0270], [10.5255, 124.0290]],
+        photos: defaultSegmentPhotos("SUB-01", "Riverbank Outfall A"),
+        history: [
+          { stage: "Repaired / Maintenance Update", date: "Oct 24, 2026", by: "ENRO Team A", status: "Blocked", notes: "Heavy siltation and plastic blockage logged at river outlet; clearing scheduled.", photos: [{ url: "https://placehold.co/800x520/2563eb/ffffff?text=SUB-01+Maintenance+Update", caption: "SUB-01 Maintenance & Clearing Log" }] },
+          { stage: "Verified by Inspector", date: "Oct 21, 2026", by: "Engr. M. Santos (City ENRO)", status: "Verified", notes: "Field verification confirmed river outlet obstruction.", photos: [{ url: "https://placehold.co/800x520/059669/ffffff?text=SUB-01+Verified+Photo", caption: "SUB-01 Verification Photo" }] },
+          { stage: "Date Reported", date: "Oct 18, 2026", by: "Citizen Report (Purok 2)", status: "Reported", notes: "Initial report of blockage near Suba Riverbank Outfall.", photos: [{ url: "https://placehold.co/800x520/ef4444/ffffff?text=SUB-01+Initial+Report", caption: "SUB-01 Initial Reported Photo" }] }
+        ]
+      },
+      { id: "SUB-02", name: "Suba Riverbank Outfall – Section B", status: "Silted", length: "433 m", crossArea: "1.44 sq.m", dimensions: "1.2m Open Channel", officer: "ENRO Team A", lastCheck: "Oct 24, 2026", notes: "Sand bar forming along canal end.", coords: [[10.5255, 124.0290], [10.5265, 124.0300]], photos: defaultSegmentPhotos("SUB-02", "Riverbank Outfall B"), history: [] },
+      { id: "SUB-07", name: "C.M. Enriquez Street Line", status: "Blocked", length: "526 m", crossArea: "0.95 sq.m", dimensions: "0.8m RCP", officer: "Brgy Suba Maintenance", lastCheck: "Oct 23, 2026", notes: "Severe trash clogging under market access road.", coords: [[10.5230, 124.0275], [10.5245, 124.0270]], photos: defaultSegmentPhotos("SUB-07", "C.M. Enriquez St."), history: [] },
+      { id: "SUB-14", name: "Purok 9 Hillside Cut-off Drain", status: "Blocked", length: "337 m", crossArea: "0.72 sq.m", dimensions: "0.6m Trapezoidal", officer: "City ENRO Danao", lastCheck: "Oct 19, 2026", notes: "Landslide mud accumulation after rain.", coords: [[10.5220, 124.0260], [10.5230, 124.0275]], photos: defaultSegmentPhotos("SUB-14", "Purok 9 Cut-off"), history: [] },
+      { id: "SUB-03", name: "Suba Coastline Canal Outlet", status: "Clear", length: "610 m", crossArea: "1.20 sq.m", dimensions: "1.0m Box", officer: "ENRO Team B", lastCheck: "Oct 26, 2026", notes: "Flowing unobstructed.", coords: [[10.5265, 124.0300], [10.5275, 124.0315]], photos: defaultSegmentPhotos("SUB-03", "Coastline Outlet"), history: [] },
+      { id: "SUB-04", name: "Purok 2 Internal Drainage", status: "Clear", length: "310 m", crossArea: "0.64 sq.m", dimensions: "0.6m RCP", officer: "Brgy Council", lastCheck: "Oct 25, 2026", notes: "Desilted recently.", coords: [[10.5240, 124.0280], [10.5248, 124.0288]], photos: defaultSegmentPhotos("SUB-04", "Purok 2 Line"), history: [] },
+      { id: "SUB-05", name: "Purok 4 School Line", status: "Silted", length: "450 m", crossArea: "0.88 sq.m", dimensions: "0.8m Open Canal", officer: "ENRO Team B", lastCheck: "Oct 22, 2026", notes: "Minor sand deposits.", coords: [[10.5215, 124.0270], [10.5225, 124.0280]], photos: defaultSegmentPhotos("SUB-05", "Purok 4 Line"), history: [] }
+    ];
+
+    segments.forEach(s => {
+      if (!Array.isArray(s.history) || s.history.length === 0) {
+        s.history = buildDefaultHistory(s);
+      }
+    });
+
+    let citizenReports = [
+      {
+        id: "REP-101",
+        location: "Near Purok 3 Chapel, Brgy. Suba",
+        desc: "Canal overflowing onto road during heavy rain.",
+        dateSubmitted: "Nov 18, 2026 · 02:15 PM",
+        status: "Pending",
+        verified: false,
+        verifiedAt: null,
+        verifiedBy: null,
+        hasUpdate: false,
+        isNewForInspector: true,
+        coords: [10.5250, 124.0282],
+        photos: [
+          { url: "https://placehold.co/800x520/f59e0b/ffffff?text=REP-101+Photo+1", caption: "Overflow near Purok 3 Chapel" },
+          { url: "https://placehold.co/800x520/d97706/ffffff?text=REP-101+Photo+2", caption: "Standing water along street edge" }
+        ]
+      },
+      {
+        id: "REP-102",
+        location: "Corner Enriquez & Market St, Brgy. Suba",
+        desc: "Garbage clogging culvert entrance.",
+        dateSubmitted: "Nov 19, 2026 · 09:40 AM",
+        status: "Pending",
+        verified: false,
+        verifiedAt: null,
+        verifiedBy: null,
+        hasUpdate: false,
+        isNewForInspector: true,
+        coords: [10.5235, 124.0272],
+        photos: [
+          { url: "https://placehold.co/800x520/ef4444/ffffff?text=REP-102+Culvert+Block", caption: "Debris at culvert inlet" }
+        ]
+      }
+    ];
+
+    let processedReportHistory = [];
+
+
+    // === SHARED CROSS-PAGE STATE CONNECTION (localStorage + storage event + BroadcastChannel) ===
+    const DW_STORAGE_KEY = 'drainwatch_suba_shared_state_v1';
+    const dwChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('drainwatch_suba_sync') : null;
+
+    function saveSharedState(broadcast = true) {
+      try {
+        const syncEl = document.getElementById('lastSyncTimestamp');
+        const payload = {
+          segments,
+          citizenReports,
+          processedReportHistory,
+          lastSync: syncEl ? syncEl.textContent : null,
+          updatedAt: Date.now()
+        };
+        localStorage.setItem(DW_STORAGE_KEY, JSON.stringify(payload));
+        if (broadcast && dwChannel) {
+          dwChannel.postMessage({ type: 'SYNC_STATE', payload });
+        }
+      } catch (err) {
+        console.warn('DrainWatch state sync save warning:', err);
+      }
+    }
+
+    function applySharedState(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      if (Array.isArray(payload.segments)) segments = payload.segments;
+      if (Array.isArray(payload.citizenReports)) citizenReports = payload.citizenReports;
+      if (Array.isArray(payload.processedReportHistory)) processedReportHistory = payload.processedReportHistory;
+      if (payload.lastSync) {
+        const syncEl = document.getElementById('lastSyncTimestamp');
+        if (syncEl) syncEl.textContent = payload.lastSync;
+      }
+      if (map) {
+        const currentFilter = document.getElementById('legendFilter')?.value || 'All';
+        renderPolylines(currentFilter);
+      }
+      renderPublicChannelList();
+      renderInspectorSegmentList();
+      refreshAllReportUI();
+      updateStats();
+      if (selectedSegmentId) {
+        const activeSeg = segments.find(s => s.id === selectedSegmentId);
+        if (activeSeg && currentMode === 'public') {
+          renderPublicDetailCard(activeSeg);
+        } else if (!activeSeg) {
+          selectedSegmentId = null;
+          closePublicDetailCard();
+        }
+      }
+    }
+
+    function loadSharedState() {
+      try {
+        const raw = localStorage.getItem(DW_STORAGE_KEY);
+        if (!raw) {
+          saveSharedState(false);
+          return;
+        }
+        const payload = JSON.parse(raw);
+        if (payload && typeof payload === 'object') {
+          if (Array.isArray(payload.segments)) segments = payload.segments;
+          if (Array.isArray(payload.citizenReports)) citizenReports = payload.citizenReports;
+          if (Array.isArray(payload.processedReportHistory)) processedReportHistory = payload.processedReportHistory;
+          if (payload.lastSync) {
+            const syncEl = document.getElementById('lastSyncTimestamp');
+            if (syncEl) syncEl.textContent = payload.lastSync;
+          }
+        }
+      } catch (err) {
+        console.warn('DrainWatch state sync load warning:', err);
+      }
+    }
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === DW_STORAGE_KEY && e.newValue) {
+        try {
+          applySharedState(JSON.parse(e.newValue));
+        } catch (_) {}
+      }
+    });
+
+    if (dwChannel) {
+      dwChannel.onmessage = (e) => {
+        if (e.data && e.data.type === 'SYNC_STATE' && e.data.payload) {
+          applySharedState(e.data.payload);
+        }
+      };
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toastBanner');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => el.classList.add('hidden'), 3200);
+    }
+
+    function showTopSubmissionBanner(msg) {
+      const banner = document.getElementById('topSubmissionBanner');
+      const textEl = document.getElementById('topSubmissionBannerText');
+      if (!banner || !textEl) return;
+      textEl.textContent = msg;
+      banner.classList.remove('hidden');
+      clearTimeout(banner._timer);
+      banner._timer = setTimeout(() => {
+        banner.classList.add('hidden');
+      }, 5000);
+    }
+
+    function hideTopSubmissionBanner() {
+      const banner = document.getElementById('topSubmissionBanner');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    function formatNowTimestamp() {
+      const now = new Date();
+      return now.toLocaleString('en-US', {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function markFieldSynced() {
+      const syncEl = document.getElementById('lastSyncTimestamp');
+      if (syncEl) syncEl.textContent = formatNowTimestamp();
+      saveSharedState();
+    }
+
+    function getAllCitizenReportRecords() {
+      const mapById = new Map();
+      [...citizenReports, ...processedReportHistory].forEach(r => mapById.set(r.id, r));
+      return Array.from(mapById.values());
+    }
+
+    function refreshAllReportUI() {
+      renderCitizenReportsList();
+      renderPublicNotifBox();
+      updateInspectorReportNotifications();
+    }
+
+    function updateInspectorReportNotifications() {
+      const totalPending = citizenReports.length;
+      const unviewedCount = citizenReports.filter(r => r.isNewForInspector).length;
+
+      const countEl = document.getElementById('reportsCount');
+      if (countEl) countEl.textContent = totalPending;
+
+      const badgeEl = document.getElementById('inspectorNewReportsBadge');
+      const badgeNumEl = document.getElementById('inspectorNewReportsCount');
+
+      if (badgeEl && badgeNumEl) {
+        if (unviewedCount > 0) {
+          badgeNumEl.textContent = unviewedCount;
+          badgeEl.classList.remove('hidden');
+        } else {
+          badgeEl.classList.add('hidden');
+        }
+      }
+    }
+
+    function renderPublicNotifBox() {
+      const listEl = document.getElementById('publicNotifList');
+      const badgeEl = document.getElementById('publicNotifBadge');
+      if (!listEl || !badgeEl) return;
+
+      const allReports = getAllCitizenReportRecords();
+      const unreadUpdates = allReports.filter(r => r.hasUpdate).length;
+
+      if (unreadUpdates > 0) {
+        badgeEl.textContent = unreadUpdates;
+        badgeEl.classList.remove('hidden');
+      } else {
+        badgeEl.classList.add('hidden');
+      }
+
+      if (allReports.length === 0) {
+        listEl.innerHTML = `<div class="p-4 text-center text-xs text-slate-500 dark:text-slate-400">No submitted reports yet.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = '';
+      allReports.forEach(rep => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.onclick = (e) => {
+          e.stopPropagation();
+          openReportDetailFromNotif(rep.id);
+        };
+        row.className = `w-full text-left p-3 rounded-2xl transition border flex flex-col gap-1 ${
+          rep.hasUpdate
+            ? 'bg-amber-50/90 dark:bg-amber-950/35 border-amber-400 ring-1 ring-amber-400/60 shadow-sm'
+            : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200/70 dark:border-slate-700 hover:bg-cyan-50/60 dark:hover:bg-slate-900'
+        }`;
+
+        const verText = rep.verified
+          ? `<span class="text-emerald-600 dark:text-emerald-400 font-bold">✓ Verified</span> (${rep.verifiedAt || '—'} by ${rep.verifiedBy || 'LGU Inspector'})`
+          : `<span class="text-slate-500 dark:text-slate-400 font-semibold">Not yet verified</span>`;
+
+        row.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-extrabold text-cyan-700 dark:text-cyan-300 uppercase">${rep.id}</span>
+              ${rep.hasUpdate ? '<span class="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-extrabold uppercase">Updated</span>' : ''}
+            </div>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              rep.verified
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+            }">${rep.status}</span>
+          </div>
+          <div class="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">${rep.location}</div>
+          <div class="text-[10px] text-slate-500 dark:text-slate-400">Submitted: ${rep.dateSubmitted}</div>
+          <div class="text-[10px] leading-snug text-slate-600 dark:text-slate-300">${verText}</div>
+        `;
+        listEl.appendChild(row);
+      });
+    }
+
+    function toggleNotifPopover(e) {
+      e.stopPropagation();
+      const pop = document.getElementById('publicNotifPopover');
+      if (!pop) return;
+      pop.classList.toggle('hidden');
+      renderPublicNotifBox();
+    }
+
+    function closeNotifPopover() {
+      const pop = document.getElementById('publicNotifPopover');
+      if (pop) pop.classList.add('hidden');
+    }
+
+    document.addEventListener('click', (e) => {
+      const wrapper = document.getElementById('publicNotifWrapper');
+      const detailModal = document.getElementById('reportDetailModal');
+      if (detailModal && !detailModal.classList.contains('hidden')) return;
+      if (wrapper && !wrapper.contains(e.target)) {
+        closeNotifPopover();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (!document.getElementById('photoLightboxModal').classList.contains('hidden')) {
+          closePhotoLightbox();
+          return;
+        }
+        if (!document.getElementById('segmentFullDetailsModal').classList.contains('hidden')) {
+          closeSegmentFullDetailsModal();
+          return;
+        }
+        if (!document.getElementById('reportDetailModal').classList.contains('hidden')) {
+          closeReportDetailModal();
+          return;
+        }
+        if (!document.getElementById('fullscreenPinModal').classList.contains('hidden')) {
+          closeFullscreenPinModal();
+          return;
+        }
+        closeNotifPopover();
+      } else if (!document.getElementById('photoLightboxModal').classList.contains('hidden')) {
+        if (e.key === 'ArrowRight') stepLightboxPhoto(1);
+        if (e.key === 'ArrowLeft') stepLightboxPhoto(-1);
+      }
+    });
+
+    function openReportDetailFromNotif(reportId) {
+      const allReports = getAllCitizenReportRecords();
+      const rep = allReports.find(r => r.id === reportId);
+      if (!rep) return;
+
+      rep.hasUpdate = false;
+      saveSharedState();
+      renderPublicNotifBox();
+
+      document.getElementById('detailReportIdBadge').textContent = rep.id;
+      document.getElementById('detailReportLocation').textContent = rep.location;
+      document.getElementById('detailReportDate').textContent = rep.dateSubmitted || '—';
+      document.getElementById('detailReportStatus').textContent = rep.status || 'Pending';
+
+      const verEl = document.getElementById('detailReportVerified');
+      if (rep.verified) {
+        verEl.textContent = 'Yes — Verified by LGU';
+        verEl.className = 'font-extrabold text-emerald-600 dark:text-emerald-400';
+      } else {
+        verEl.textContent = 'No — Awaiting Verification';
+        verEl.className = 'font-bold text-amber-600 dark:text-amber-400';
+      }
+
+      document.getElementById('detailReportVerifiedAt').textContent = rep.verified ? (rep.verifiedAt || 'Recorded') : 'Not yet verified';
+      document.getElementById('detailReportVerifiedBy').textContent = rep.verified ? (rep.verifiedBy || 'City ENRO / Brgy. Suba') : 'Pending inspector assignment';
+      document.getElementById('detailReportDesc').textContent = rep.desc;
+
+      const photosWrap = document.getElementById('detailReportPhotos');
+      photosWrap.innerHTML = '';
+      const photos = getSegmentPhotos(rep);
+      const displayPhotos = photos.length > 0
+        ? photos
+        : [{ url: 'https://placehold.co/800x520/e2e8f0/475569?text=No+Photo+Attached', caption: rep.location }];
+
+      displayPhotos.forEach((p, idx) => {
+        const img = document.createElement('img');
+        img.src = p.url;
+        img.alt = p.caption || rep.location;
+        img.className = 'w-24 h-20 object-cover rounded-xl border border-slate-200 dark:border-slate-700 cursor-zoom-in hover:opacity-90 transition';
+        img.onclick = () => openPhotoLightbox(displayPhotos, idx, `${rep.id} · ${rep.location}`);
+        photosWrap.appendChild(img);
+      });
+
+      document.getElementById('reportDetailModal').classList.remove('hidden');
+    }
+
+    function closeReportDetailModal() {
+      const m = document.getElementById('reportDetailModal');
+      if (m) m.classList.add('hidden');
+      const pop = document.getElementById('publicNotifPopover');
+      if (pop && currentMode === 'public') {
+        pop.classList.remove('hidden');
+      }
+    }
+
+    // Segment Full Details & Reverse-Chronological Timeline Modal
+    function openSegmentFullDetailsModal() {
+      const seg = segments.find(s => s.id === selectedSegmentId);
+      if (!seg) return;
+
+      document.getElementById('fullSegIdBadge').textContent = seg.id;
+      document.getElementById('fullSegName').textContent = seg.name;
+      document.getElementById('fullSegStatus').textContent = formatConditionLabel(seg.status);
+      document.getElementById('fullSegLength').textContent = seg.length || 'N/A';
+      document.getElementById('fullSegDimensions').textContent = seg.dimensions || 'N/A';
+      document.getElementById('fullSegCrossArea').textContent = seg.crossArea || 'N/A';
+      document.getElementById('fullSegLastCheck').textContent = seg.lastCheck || '—';
+      document.getElementById('fullSegOfficer').textContent = seg.officer || 'City ENRO';
+      document.getElementById('fullSegNotes').textContent = `"${seg.notes || 'No remarks recorded.'}"`;
+
+      const currentPhotosWrap = document.getElementById('fullSegCurrentPhotos');
+      currentPhotosWrap.innerHTML = '';
+      const currentPhotos = getSegmentPhotos(seg);
+      const displayCurrentPhotos = currentPhotos.length > 0 ? currentPhotos : defaultSegmentPhotos(seg.id, seg.name);
+      displayCurrentPhotos.forEach((p, idx) => {
+        const img = document.createElement('img');
+        img.src = p.url;
+        img.alt = p.caption || seg.name;
+        img.className = 'w-28 h-20 object-cover rounded-xl border border-slate-200 dark:border-slate-700 cursor-zoom-in hover:opacity-90 transition';
+        img.onclick = () => openPhotoLightbox(displayCurrentPhotos, idx, `${seg.id} · ${seg.name}`);
+        currentPhotosWrap.appendChild(img);
+      });
+
+      const timelineWrap = document.getElementById('fullSegTimelineList');
+      timelineWrap.innerHTML = '';
+      const rawHistory = (Array.isArray(seg.history) && seg.history.length > 0)
+        ? [...seg.history]
+        : buildDefaultHistory(seg);
+      const reverseHistory = rawHistory.reverse();
+
+      reverseHistory.forEach((entry, entryIdx) => {
+        const itemCard = document.createElement('div');
+        itemCard.className = 'p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 space-y-2';
+
+        const entryPhotos = Array.isArray(entry.photos) && entry.photos.length > 0
+          ? entry.photos
+          : [{ url: `https://placehold.co/800x520/0e7490/ffffff?text=${encodeURIComponent(seg.id + ' - ' + (entry.stage || 'Update'))}`, caption: entry.stage || 'Update Photo' }];
+
+        let thumbsHtml = '<div class="flex flex-wrap gap-2 pt-1">';
+        entryPhotos.forEach((ph, pIdx) => {
+          const url = typeof ph === 'string' ? ph : ph.url;
+          const cap = typeof ph === 'string' ? `${entry.stage || 'Update'} (${pIdx + 1})` : (ph.caption || entry.stage || 'Update Photo');
+          thumbsHtml += `<img src="${url}" alt="${cap}" onclick="openEntryPhotoLightbox('${seg.id}', ${entryIdx}, ${pIdx})" class="w-24 h-16 object-cover rounded-xl border border-cyan-200 dark:border-slate-700 cursor-zoom-in hover:opacity-90 transition" />`;
+        });
+        thumbsHtml += '</div>';
+
+        itemCard.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-extrabold text-cyan-700 dark:text-cyan-400">${entry.stage || 'Update'}</span>
+            <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400">${entry.date || '—'}</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+            <span><b>Status:</b> ${formatConditionLabel(entry.status || seg.status)}</span>
+            <span>·</span>
+            <span><b>By:</b> ${entry.by || seg.officer || 'Inspector'}</span>
+          </div>
+          <p class="text-xs text-slate-700 dark:text-slate-300">${entry.notes || ''}</p>
+          ${thumbsHtml}
+        `;
+        timelineWrap.appendChild(itemCard);
+      });
+
+      document.getElementById('segmentFullDetailsModal').classList.remove('hidden');
+    }
+
+    window.openEntryPhotoLightbox = function (segId, reversedEntryIdx, photoIdx) {
+      const seg = segments.find(s => s.id === segId);
+      if (!seg) return;
+      const rawHistory = (Array.isArray(seg.history) && seg.history.length > 0)
+        ? [...seg.history]
+        : buildDefaultHistory(seg);
+      const entry = rawHistory.reverse()[reversedEntryIdx];
+      if (!entry) return;
+      const photos = Array.isArray(entry.photos) && entry.photos.length > 0
+        ? entry.photos
+        : [{ url: `https://placehold.co/800x520/0e7490/ffffff?text=${encodeURIComponent(seg.id)}`, caption: entry.stage || 'Update' }];
+      openPhotoLightbox(photos, photoIdx, `${seg.id} · ${entry.stage || 'Update'} (${entry.date || ''})`);
+    };
+
+    function closeSegmentFullDetailsModal() {
+      const m = document.getElementById('segmentFullDetailsModal');
+      if (m) m.classList.add('hidden');
+    }
+
+    // Photo Gallery Lightbox Functions (Next / Previous / Swipe / Click Enlarge / Exit)
+    function openPhotoLightbox(photosArray, startIndex = 0, title = 'Drainage Photo') {
+      if (!Array.isArray(photosArray) || photosArray.length === 0) return;
+      lightboxPhotos = photosArray.map((item, i) =>
+        typeof item === 'string'
+          ? { url: item, caption: `${title} (${i + 1})` }
+          : { url: item.url, caption: item.caption || `${title} (${i + 1})` }
+      );
+      lightboxIndex = Math.max(0, Math.min(startIndex, lightboxPhotos.length - 1));
+      lightboxZoomed = false;
+      document.getElementById('lightboxTitle').textContent = title;
+      renderLightboxSlide();
+      document.getElementById('photoLightboxModal').classList.remove('hidden');
+    }
+
+    function renderLightboxSlide() {
+      const current = lightboxPhotos[lightboxIndex];
+      const imgEl = document.getElementById('lightboxImage');
+      const counterEl = document.getElementById('lightboxCounter');
+      const captionEl = document.getElementById('lightboxCaption');
+      const thumbsEl = document.getElementById('lightboxThumbnails');
+
+      lightboxZoomed = false;
+      imgEl.className = 'max-h-[72vh] max-w-[88vw] object-contain rounded-2xl shadow-2xl transition-transform duration-200 lightbox-normal';
+      imgEl.src = current.url;
+      imgEl.alt = current.caption;
+      counterEl.textContent = `${lightboxIndex + 1} / ${lightboxPhotos.length}`;
+      captionEl.textContent = `${current.caption} · Click image to enlarge • Swipe or use arrows for Next/Previous`;
+
+      thumbsEl.innerHTML = '';
+      lightboxPhotos.forEach((ph, idx) => {
+        const t = document.createElement('img');
+        t.src = ph.url;
+        t.alt = ph.caption;
+        t.onclick = (ev) => {
+          ev.stopPropagation();
+          lightboxIndex = idx;
+          renderLightboxSlide();
+        };
+        t.className = `w-11 h-11 object-cover rounded-lg cursor-pointer border-2 transition ${
+          idx === lightboxIndex ? 'border-cyan-400 scale-105' : 'border-transparent opacity-60 hover:opacity-100'
+        }`;
+        thumbsEl.appendChild(t);
+      });
+    }
+
+    function stepLightboxPhoto(delta) {
+      if (lightboxPhotos.length <= 1) return;
+      lightboxIndex = (lightboxIndex + delta + lightboxPhotos.length) % lightboxPhotos.length;
+      renderLightboxSlide();
+    }
+
+    function toggleLightboxZoom() {
+      lightboxZoomed = !lightboxZoomed;
+      const imgEl = document.getElementById('lightboxImage');
+      if (lightboxZoomed) {
+        imgEl.classList.remove('lightbox-normal');
+        imgEl.classList.add('lightbox-zoomed');
+      } else {
+        imgEl.classList.remove('lightbox-zoomed');
+        imgEl.classList.add('lightbox-normal');
+      }
+    }
+
+    function closePhotoLightbox() {
+      lightboxZoomed = false;
+      const modal = document.getElementById('photoLightboxModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function handleLightboxBackdropClick(e) {
+      if (e.target.id === 'lightboxStage') {
+        closePhotoLightbox();
+      }
+    }
+
+    function handleLightboxTouchStart(e) {
+      if (e.touches && e.touches.length > 0) touchStartX = e.touches[0].clientX;
+    }
+
+    function handleLightboxTouchEnd(e) {
+      if (!e.changedTouches || e.changedTouches.length === 0) return;
+      const diffX = e.changedTouches[0].clientX - touchStartX;
+      if (Math.abs(diffX) > 45) stepLightboxPhoto(diffX < 0 ? 1 : -1);
+    }
+
+    function handleLightboxMouseDown(e) {
+      mouseStartX = e.clientX;
+    }
+
+    function handleLightboxMouseUp(e) {
+      const diffX = e.clientX - mouseStartX;
+      if (Math.abs(diffX) > 60) stepLightboxPhoto(diffX < 0 ? 1 : -1);
+    }
+
+    window.openSegmentLightboxById = function (segId, photoIndex = 0) {
+      const seg = segments.find(s => s.id === segId);
+      if (!seg) return;
+      const photos = getSegmentPhotos(seg);
+      openPhotoLightbox(photos.length > 0 ? photos : defaultSegmentPhotos(seg.id, seg.name), photoIndex, `${seg.id} · ${seg.name}`);
+    };
+
+    function renderInspectorPhotoGallery() {
+      const wrap = document.getElementById('inspectorPhotoGallery');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      if (!activeEditorPhotos || activeEditorPhotos.length === 0) {
+        wrap.innerHTML = `<span class="text-[11px] text-slate-400">No photos attached yet.</span>`;
+        return;
+      }
+      activeEditorPhotos.forEach((ph, idx) => {
+        const box = document.createElement('div');
+        box.className = 'relative group w-20 h-16 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-600';
+        const img = document.createElement('img');
+        img.src = ph.url;
+        img.alt = ph.caption || 'Segment photo';
+        img.className = 'w-full h-full object-cover cursor-zoom-in';
+        img.onclick = () => {
+          const title = document.getElementById('editName').value || 'Segment Photo';
+          openPhotoLightbox(activeEditorPhotos, idx, title);
+        };
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = '×';
+        delBtn.title = 'Remove photo';
+        delBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          activeEditorPhotos.splice(idx, 1);
+          renderInspectorPhotoGallery();
+        };
+        delBtn.className = 'absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center opacity-90 hover:opacity-100';
+        box.appendChild(img);
+        box.appendChild(delBtn);
+        wrap.appendChild(box);
+      });
+    }
+
+    function handleInspectorPhotoUpload(e) {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          activeEditorPhotos.push({
+            url: ev.target.result,
+            caption: `${file.name} (Uploaded by Inspector)`
+          });
+          renderInspectorPhotoGallery();
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = '';
+    }
+
+    function handleCitizenPhotoSelection(e) {
+      const files = Array.from(e.target.files || []);
+      pendingReportPhotos = [];
+      const strip = document.getElementById('reportPhotoPreviewStrip');
+      if (strip) strip.innerHTML = '';
+
+      files.forEach((file, idx) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const item = { url: ev.target.result, caption: `${file.name} (#${idx + 1})` };
+          pendingReportPhotos.push(item);
+          if (strip) {
+            const thumb = document.createElement('img');
+            thumb.src = item.url;
+            thumb.alt = item.caption;
+            thumb.className = 'w-14 h-12 object-cover rounded-lg border border-cyan-300 cursor-zoom-in';
+            thumb.onclick = () => openPhotoLightbox(pendingReportPhotos, idx, 'Submitted Report Photos');
+            strip.appendChild(thumb);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function initMap() {
+      loadSharedState();
+      map = L.map('map', { center: [10.5247, 124.0285], zoom: 16 });
+      
+      L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        maxZoom: 17,
+        attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (TopoExport)'
+      }).addTo(map);
+
+      drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      drawControl = new L.Control.Draw({
+        edit: { featureGroup: drawnItems },
+        draw: { polyline: true, polygon: false, circle: false, marker: false, circlemarker: false }
+      });
+
+      map.on(L.Draw.Event.CREATED, function (event) {
+        const layer = event.layer;
+        drawnItems.addLayer(layer);
+        
+        const latlngs = layer.getLatLngs().map(latlng => [latlng.lat, latlng.lng]);
+        const currentId = document.getElementById('editId').value;
+        const photosToSave = activeEditorPhotos.length > 0
+          ? [...activeEditorPhotos]
+          : defaultSegmentPhotos(currentId || "SUB-NEW", "Mapped Line");
+
+        const existing = segments.find(s => s.id === currentId);
+        if (existing) {
+          existing.coords = latlngs;
+          existing.photos = photosToSave;
+          existing.history = existing.history || buildDefaultHistory(existing);
+          existing.history.push({
+            stage: "Geometry Redrawn on Map",
+            date: formatNowTimestamp(),
+            by: document.getElementById('editOfficer').value.trim() || existing.officer || "ENRO Inspector",
+            status: formatConditionLabel(existing.status),
+            notes: "Vector path updated via Inspector map drawing tool.",
+            photos: [...photosToSave]
+          });
+        } else {
+          const newSeg = {
+            id: currentId || "SUB-" + String(segments.length + 1).padStart(2, '0'),
+            name: document.getElementById('editName').value || "Newly Mapped Line",
+            status: document.getElementById('editStatus').value || "Clear",
+            length: document.getElementById('editLength').value || "350 m",
+            crossArea: document.getElementById('editCrossArea').value || "1.00 sq.m",
+            dimensions: document.getElementById('editDimensions').value || "1.0m Box",
+            officer: document.getElementById('editOfficer').value || "ENRO Inspector",
+            lastCheck: formatNowTimestamp(),
+            photos: photosToSave,
+            notes: document.getElementById('editNotes').value || "Drawn via Inspector Hub",
+            coords: latlngs,
+            history: []
+          };
+          newSeg.history = [
+            {
+              stage: "Drainage Segment Mapped",
+              date: newSeg.lastCheck,
+              by: newSeg.officer,
+              status: formatConditionLabel(newSeg.status),
+              notes: newSeg.notes,
+              photos: [...photosToSave]
+            }
+          ];
+          segments.unshift(newSeg);
+        }
+        renderPolylines();
+        renderPublicChannelList();
+        renderInspectorSegmentList();
+        updateStats();
+        markFieldSynced();
+        showToast("Drainage vector path saved and synced to map!");
+      });
+
+      map.on(L.Draw.Event.EDITED, function (event) {
+        event.layers.eachLayer(function (layer) {
+          const latlngs = layer.getLatLngs().map(latlng => [latlng.lat, latlng.lng]);
+          const currentId = document.getElementById('editId').value;
+          const existing = segments.find(s => s.id === currentId);
+          if (existing) {
+            existing.coords = latlngs;
+            existing.history = existing.history || buildDefaultHistory(existing);
+            existing.history.push({
+              stage: "Geometry Edited on Map",
+              date: formatNowTimestamp(),
+              by: existing.officer || "ENRO Inspector",
+              status: formatConditionLabel(existing.status),
+              notes: "Existing drainage line coordinates edited on map.",
+              photos: getSegmentPhotos(existing)
+            });
+          }
+        });
+        renderPolylines();
+        updateStats();
+        markFieldSynced();
+        showToast("Drainage geometry updated!");
+      });
+
+      renderPolylines();
+      renderPublicChannelList();
+      renderInspectorSegmentList();
+      refreshAllReportUI();
+      updateStats();
+    }
+
+    function renderPolylines(filterCondition = 'All') {
+      Object.values(polylines).forEach(p => map.removeLayer(p));
+      polylines = {};
+
+      segments.forEach(seg => {
+        if (filterCondition !== 'All' && seg.status !== filterCondition) return;
+
+        const polyline = L.polyline(seg.coords, {
+          color: statusColors[seg.status] || '#10B981',
+          weight: 6,
+          opacity: 0.88
+        }).addTo(map);
+
+        polyline.on('click', () => selectSegment(seg.id));
+        polylines[seg.id] = polyline;
+      });
+    }
+
+    function filterMapByCondition(condition) {
+      renderPolylines(condition);
+    }
+
+    function renderPublicDetailCard(seg) {
+      const card = document.getElementById('publicSelectedDetailCard');
+      if (!card || !seg) return;
+
+      selectedSegmentId = seg.id;
+      document.getElementById('pubDetailBadge').innerText = `${seg.id} • Official Register`;
+      document.getElementById('pubDetailTitle').innerText = seg.name;
+      document.getElementById('pubDetailStatus').innerText = formatConditionLabel(seg.status);
+      document.getElementById('pubDetailLength').innerText = seg.length || 'N/A';
+      document.getElementById('pubDetailDimensions').innerText = seg.dimensions || 'N/A';
+      document.getElementById('pubDetailCrossArea').innerText = seg.crossArea || 'N/A';
+      document.getElementById('pubDetailNotes').innerText = `"${seg.notes || ''}"`;
+
+      const photosContainer = document.getElementById('pubDetailPhotos');
+      photosContainer.innerHTML = '';
+      const photos = getSegmentPhotos(seg);
+
+      if (photos.length > 0) {
+        photos.forEach((photoObj, index) => {
+          const thumb = document.createElement('img');
+          thumb.src = photoObj.url;
+          thumb.alt = photoObj.caption || `${seg.name} photo ${index + 1}`;
+          thumb.className = 'w-full h-20 object-cover rounded-xl border border-cyan-200 dark:border-slate-700 cursor-zoom-in';
+          thumb.onclick = (e) => {
+            e.stopPropagation();
+            openPhotoLightbox(photos, index, `${seg.id} - ${seg.name}`);
+          };
+          photosContainer.appendChild(thumb);
+        });
+      }
+
+      card.classList.remove('hidden');
+    }
+
+    function closePublicDetailCard() {
+      const card = document.getElementById('publicSelectedDetailCard');
+      if (card) card.classList.add('hidden');
+    }
+
+    function selectSegment(id) {
+      const seg = segments.find(s => s.id === id);
+      if (!seg) return;
+
+      if (polylines[id]) {
+        const bounds = polylines[id].getBounds();
+        map.flyToBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+      }
+
+      if (currentMode === 'public') {
+        renderPublicDetailCard(seg);
+        const photos = getSegmentPhotos(seg);
+        const displayPhotos = photos.length > 0 ? photos : defaultSegmentPhotos(seg.id, seg.name);
+        if (polylines[id]) {
+          polylines[id].bindPopup(`
+            <div class="p-2 text-slate-800 max-w-[240px]">
+              <span class="text-[10px] font-bold text-cyan-600 block uppercase">${seg.id} • Official Register</span>
+              <h4 class="font-bold text-sm mb-1">${seg.name}</h4>
+              <div class="relative mb-2 group cursor-zoom-in" onclick="window.openSegmentLightboxById('${seg.id}', 0)">
+                <img src="${displayPhotos[0].url}" alt="${displayPhotos[0].caption}" class="w-full h-24 object-cover rounded-lg border border-slate-200" />
+                <span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-slate-900/80 text-white text-[9px] font-bold">🔍 ${displayPhotos.length} Photo${displayPhotos.length > 1 ? 's' : ''}</span>
+              </div>
+              <p class="text-xs mb-1"><b>Status:</b> ${formatConditionLabel(seg.status)}</p>
+              <p class="text-xs mb-1"><b>Dimensions:</b> ${seg.dimensions} (${seg.crossArea || '—'})</p>
+              <p class="text-xs mb-1"><b>Length:</b> ${seg.length}</p>
+              <p class="text-xs text-slate-500 italic mb-2">"${seg.notes}"</p>
+              <button type="button" onclick="openSegmentFullDetailsModal()" class="w-full py-1.5 px-2 rounded-lg bg-cyan-600 text-white text-[11px] font-bold">View Full Details</button>
+            </div>
+          `).openPopup();
+        }
+      } else {
+        document.getElementById('editId').value = seg.id;
+        document.getElementById('editSourceReportId').value = '';
+        document.getElementById('editName').value = seg.name;
+        document.getElementById('editStatus').value = seg.status;
+        document.getElementById('editDimensions').value = seg.dimensions || '';
+        document.getElementById('editCrossArea').value = seg.crossArea || '';
+        document.getElementById('editLength').value = seg.length || '';
+        document.getElementById('editDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('editOfficer').value = seg.officer || '';
+        document.getElementById('editNotes').value = seg.notes || '';
+        document.getElementById('editTitle').innerText = `Editing ${seg.id}`;
+        document.getElementById('deleteSegmentBtn').classList.remove('hidden');
+        document.getElementById('verifyReportOnlyBtn').classList.add('hidden');
+        const segPhotos = getSegmentPhotos(seg);
+        activeEditorPhotos = segPhotos.length > 0 ? [...segPhotos] : [...defaultSegmentPhotos(seg.id, seg.name)];
+        renderInspectorPhotoGallery();
+        switchInspectorTab('editor');
+      }
+    }
+
+    function previewConditionColor(newStatus) {
+      const segId = document.getElementById('editId').value;
+      if (segId && polylines[segId]) {
+        polylines[segId].setStyle({ color: statusColors[newStatus] || '#10B981' });
+      }
+    }
+
+    function deleteCurrentSegment() {
+      const segId = document.getElementById('editId').value;
+      if (!segId) return;
+      const idx = segments.findIndex(s => s.id === segId);
+      if (idx === -1) return;
+
+      if (polylines[segId]) {
+        map.removeLayer(polylines[segId]);
+        delete polylines[segId];
+      }
+      segments.splice(idx, 1);
+      if (selectedSegmentId === segId) {
+        selectedSegmentId = null;
+        closePublicDetailCard();
+      }
+      document.getElementById('editId').value = '';
+      document.getElementById('editTitle').innerText = 'Segment deleted. Select another segment.';
+      document.getElementById('deleteSegmentBtn').classList.add('hidden');
+      activeEditorPhotos = [];
+      renderInspectorPhotoGallery();
+      renderPolylines();
+      renderPublicChannelList();
+      renderInspectorSegmentList();
+      updateStats();
+      markFieldSynced();
+      showToast(`Segment ${segId} removed from map and register.`);
+    }
+
+    function renderInspectorSegmentList() {
+      const container = document.getElementById('inspectorSegmentList');
+      const countLbl = document.getElementById('inspectorSegCountLabel');
+      if (!container) return;
+      container.innerHTML = '';
+      if (countLbl) countLbl.textContent = `${segments.length} total`;
+
+      segments.forEach(seg => {
+        const card = document.createElement('div');
+        card.className = "p-3 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-cyan-500 cursor-pointer transition";
+        card.onclick = () => selectSegment(seg.id);
+        card.innerHTML = `
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style="background-color: ${statusColors[seg.status] || '#10B981'}">${formatConditionLabel(seg.status)}</span>
+            <span class="text-[10px] text-slate-400 font-bold">${seg.id} · ${seg.length}</span>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <h4 class="font-bold text-xs text-slate-800 dark:text-slate-100">${seg.name}</h4>
+            <span class="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 shrink-0">Tap to Edit →</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function enableMapDrawingMode() {
+      if (currentMode !== 'inspector') return;
+      if (!drawControlActive) {
+        map.addControl(drawControl);
+        drawControlActive = true;
+      }
+      const selectedStatus = document.getElementById('editStatus').value || 'Clear';
+      previewConditionColor(selectedStatus);
+
+      const currentId = document.getElementById('editId').value;
+      const existing = segments.find(s => s.id === currentId);
+      drawnItems.clearLayers();
+      if (existing && existing.coords) {
+        const editPoly = L.polyline(existing.coords, {
+          color: statusColors[selectedStatus] || '#10B981',
+          weight: 6,
+          opacity: 0.9
+        });
+        drawnItems.addLayer(editPoly);
+      }
+      showToast("Drawing mode activated! Use the map toolbar to draw or edit lines.");
+    }
+
+    function renderPublicChannelList() {
+      const container = document.getElementById('publicChannelList');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const start = (currentPage - 1) * itemsPerPage;
+      const paginatedSegments = segments.slice(start, start + itemsPerPage);
+
+      paginatedSegments.forEach(seg => {
+        const card = document.createElement('div');
+        card.className = "p-3 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-cyan-500 cursor-pointer transition shadow-sm";
+        card.onclick = () => selectSegment(seg.id);
+        card.innerHTML = `
+          <div class="flex justify-between items-start mb-1">
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style="background-color: ${statusColors[seg.status]}">${formatConditionLabel(seg.status)}</span>
+            <span class="text-[10px] text-slate-400 font-bold">${seg.length}</span>
+          </div>
+          <h4 class="font-bold text-xs text-slate-800 dark:text-slate-100 mb-0.5">${seg.name}</h4>
+          <p class="text-[11px] text-slate-500">${seg.id} • ${seg.dimensions}${seg.crossArea ? ' • ' + seg.crossArea : ''}</p>
+        `;
+        container.appendChild(card);
+      });
+
+      const totalPages = Math.max(1, Math.ceil(segments.length / itemsPerPage));
+      if (currentPage > totalPages) currentPage = totalPages;
+      document.getElementById('pageIndicator').innerText = `Page ${currentPage} of ${totalPages}`;
+      document.getElementById('prevPageBtn').disabled = currentPage === 1;
+      document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+    }
+
+    function changePage(delta) {
+      const totalPages = Math.max(1, Math.ceil(segments.length / itemsPerPage));
+      currentPage = Math.max(1, Math.min(totalPages, currentPage + delta));
+      renderPublicChannelList();
+    }
+
+    function renderCitizenReportsList() {
+      const container = document.getElementById('citizenReportsList');
+      if (!container) return;
+      container.innerHTML = '';
+      updateInspectorReportNotifications();
+
+      const filterVal = document.getElementById('reportViewFilter')?.value || 'all';
+      const filteredReports = citizenReports.filter(rep => {
+        if (filterVal === 'unviewed') return Boolean(rep.isNewForInspector);
+        if (filterVal === 'viewed') return !rep.isNewForInspector;
+        return true;
+      });
+
+      if (filteredReports.length === 0) {
+        const emptyMsg = filterVal === 'unviewed'
+          ? 'No unviewed citizen reports.'
+          : filterVal === 'viewed'
+            ? 'No viewed pending reports.'
+            : 'All citizen reports have been reviewed and processed.';
+        container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">${emptyMsg}</div>`;
+        return;
+      }
+
+      filteredReports.forEach(rep => {
+        const item = document.createElement('div');
+        item.className = `p-3 rounded-2xl cursor-pointer transition border ${
+          rep.isNewForInspector
+            ? 'bg-amber-50 dark:bg-amber-950/35 border-amber-400 ring-2 ring-amber-400/50 shadow-sm'
+            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-cyan-500'
+        }`;
+        item.onclick = () => selectCitizenReport(rep);
+        item.innerHTML = `
+          <div class="flex justify-between items-center mb-1 gap-2">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-extrabold text-amber-700 dark:text-amber-400 uppercase">${rep.id}</span>
+              ${rep.isNewForInspector
+                ? '<span class="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-extrabold uppercase">NEW</span>'
+                : '<span class="px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 text-[9px] font-bold uppercase">Viewed</span>'}
+            </div>
+            <span class="text-[10px] text-slate-400">${rep.dateSubmitted || '📍 Map Location'}</span>
+          </div>
+          <h5 class="font-bold text-xs text-slate-800 dark:text-slate-100">${rep.location}</h5>
+          <p class="text-[11px] text-slate-600 dark:text-slate-400 italic">${rep.desc}</p>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function selectCitizenReport(rep) {
+      rep.isNewForInspector = false;
+      saveSharedState();
+      renderCitizenReportsList();
+
+      if (pinnedReportMarker) map.removeLayer(pinnedReportMarker);
+      pinnedReportMarker = L.marker(rep.coords).addTo(map)
+        .bindPopup(`<b>Citizen Issue: ${rep.id}</b><br>${rep.location}<br><i>${rep.desc}</i>`).openPopup();
+      map.flyTo(rep.coords, 17);
+
+      const newSegId = "SUB-" + String(segments.length + 1).padStart(2, '0');
+      document.getElementById('editId').value = newSegId;
+      document.getElementById('editSourceReportId').value = rep.id;
+      document.getElementById('editName').value = rep.location;
+      document.getElementById('editStatus').value = "Blocked";
+      document.getElementById('editDimensions').value = "0.8m Open Canal";
+      document.getElementById('editCrossArea').value = "0.85 sq.m";
+      document.getElementById('editLength').value = "280 m";
+      document.getElementById('editDate').value = new Date().toISOString().split('T')[0];
+      document.getElementById('editOfficer').value = rep.verifiedBy || "Engr. R. Dizon (City ENRO)";
+      document.getElementById('editNotes').value = `Verified from Citizen Report ${rep.id}: ${rep.desc}`;
+      document.getElementById('editTitle').innerText = `Verify & Convert ${rep.id}`;
+      document.getElementById('deleteSegmentBtn').classList.add('hidden');
+      document.getElementById('verifyReportOnlyBtn').classList.remove('hidden');
+
+      const rPhotos = getSegmentPhotos(rep);
+      activeEditorPhotos = rPhotos.length > 0
+        ? [...rPhotos]
+        : [...defaultSegmentPhotos(newSegId, rep.location)];
+      renderInspectorPhotoGallery();
+      switchInspectorTab('editor');
+    }
+
+    function verifyReportWithoutConvert() {
+      const sourceReportId = document.getElementById('editSourceReportId').value;
+      if (!sourceReportId) return;
+      const rep = citizenReports.find(r => r.id === sourceReportId);
+      if (!rep) return;
+
+      const officer = document.getElementById('editOfficer').value.trim() || "LGU Field Inspector";
+      const remarks = document.getElementById('editNotes').value.trim() || rep.desc;
+      const nowStr = formatNowTimestamp();
+
+      rep.verified = true;
+      rep.verifiedAt = nowStr;
+      rep.verifiedBy = officer;
+      rep.status = "Verified by LGU";
+      rep.desc = remarks;
+      rep.hasUpdate = true;
+      rep.isNewForInspector = false;
+
+      processedReportHistory.unshift({ ...rep });
+      citizenReports = citizenReports.filter(r => r.id !== sourceReportId);
+
+      document.getElementById('editSourceReportId').value = '';
+      document.getElementById('verifyReportOnlyBtn').classList.add('hidden');
+      markFieldSynced();
+      refreshAllReportUI();
+      showToast(`Report ${rep.id} marked as verified and sent update to citizen.`);
+    }
+
+    function saveSegmentUpdate(e) {
+      e.preventDefault();
+      const id = document.getElementById('editId').value.trim();
+      const sourceReportId = document.getElementById('editSourceReportId').value.trim();
+      const name = document.getElementById('editName').value.trim();
+      const status = document.getElementById('editStatus').value;
+      const dimensions = document.getElementById('editDimensions').value.trim() || "1.0m Box";
+      const crossArea = document.getElementById('editCrossArea').value.trim() || "1.00 sq.m";
+      let length = document.getElementById('editLength').value.trim() || "350 m";
+      if (/^\d+(\.\d+)?$/.test(length)) length = length + " m";
+      const officer = document.getElementById('editOfficer').value.trim() || "City ENRO Inspector";
+      const notes = document.getElementById('editNotes').value.trim();
+      const nowStr = formatNowTimestamp();
+
+      const photosToSave = activeEditorPhotos.length > 0
+        ? [...activeEditorPhotos]
+        : [...defaultSegmentPhotos(id || "SUB-NEW", name)];
+
+      const linkedReport = sourceReportId
+        ? citizenReports.find(r => r.id === sourceReportId)
+        : null;
+
+      const existingIndex = segments.findIndex(s => s.id === id);
+      if (existingIndex !== -1) {
+        const existingSeg = segments[existingIndex];
+        const prevHistory = Array.isArray(existingSeg.history) && existingSeg.history.length > 0
+          ? [...existingSeg.history]
+          : buildDefaultHistory(existingSeg);
+
+        prevHistory.push({
+          stage: status === 'Repair' ? "Under Maintenance Update" : status === 'Structural' ? "Structurally Failed Update" : "Drainage System / Inspector Update",
+          date: nowStr,
+          by: officer,
+          status: formatConditionLabel(status),
+          notes: notes || "Segment condition and details updated by inspector.",
+          photos: [...photosToSave]
+        });
+
+        segments[existingIndex] = {
+          ...existingSeg,
+          name,
+          status,
+          dimensions,
+          crossArea,
+          length,
+          officer,
+          lastCheck: nowStr,
+          notes,
+          photos: photosToSave,
+          history: prevHistory
+        };
+      } else {
+        const baseCoord = pinnedReportMarker
+          ? [pinnedReportMarker.getLatLng().lat, pinnedReportMarker.getLatLng().lng]
+          : [10.5247, 124.0285];
+
+        const initialTimeline = [];
+        if (linkedReport) {
+          const repPhotos = getSegmentPhotos(linkedReport);
+          initialTimeline.push({
+            stage: `Date Reported (${linkedReport.id})`,
+            date: linkedReport.dateSubmitted || nowStr,
+            by: "Citizen Report",
+            status: "Reported",
+            notes: linkedReport.desc || "Reported by citizen.",
+            photos: repPhotos.length > 0 ? [...repPhotos] : [...photosToSave]
+          });
+        }
+
+        initialTimeline.push({
+          stage: "Verified by Inspector",
+          date: nowStr,
+          by: officer,
+          status: "Verified",
+          notes: notes || `Verified and registered ${name}.`,
+          photos: [...photosToSave]
+        });
+
+        initialTimeline.push({
+          stage: status === 'Repair' ? "Under Maintenance Logged" : status === 'Structural' ? "Structurally Failed Logged" : "Drainage Segment Registered",
+          date: nowStr,
+          by: officer,
+          status: formatConditionLabel(status),
+          notes: notes || "Registered into Barangay Suba drainage network.",
+          photos: [...photosToSave]
+        });
+
+        segments.unshift({
+          id: id || "SUB-" + String(segments.length + 1).padStart(2, '0'),
+          name,
+          status,
+          length,
+          crossArea,
+          dimensions,
+          officer,
+          lastCheck: nowStr,
+          notes,
+          photos: photosToSave,
+          coords: [baseCoord, [baseCoord[0] + 0.0008, baseCoord[1] + 0.0010]],
+          history: initialTimeline
+        });
+      }
+
+      if (sourceReportId) {
+        const rep = citizenReports.find(r => r.id === sourceReportId);
+        if (rep) {
+          rep.verified = true;
+          rep.verifiedAt = nowStr;
+          rep.verifiedBy = officer;
+          rep.status = `Verified & Registered (${formatConditionLabel(status)})`;
+          rep.hasUpdate = true;
+          rep.isNewForInspector = false;
+          rep.photos = photosToSave;
+
+          processedReportHistory.unshift({ ...rep });
+          citizenReports = citizenReports.filter(r => r.id !== sourceReportId);
+        }
+        document.getElementById('editSourceReportId').value = '';
+        document.getElementById('verifyReportOnlyBtn').classList.add('hidden');
+      }
+
+      if (pinnedReportMarker) {
+        map.removeLayer(pinnedReportMarker);
+        pinnedReportMarker = null;
+      }
+
+      renderPolylines();
+      renderPublicChannelList();
+      renderInspectorSegmentList();
+      updateStats();
+      markFieldSynced();
+      refreshAllReportUI();
+      showToast("Segment saved, map synced, and citizen notification updated.");
+    }
+
+    function updateStats() {
+      document.getElementById('statSegments').innerText = segments.length;
+      
+      let totalMeters = 0;
+      segments.forEach(s => {
+        const m = parseInt(s.length) || 400;
+        totalMeters += m;
+      });
+      document.getElementById('statLength').innerText = (totalMeters / 1000).toFixed(2) + " km";
+
+      const clearCount = segments.filter(s => s.status === 'Clear').length;
+      const siltedCount = segments.filter(s => s.status === 'Silted').length;
+      const blockedCount = segments.filter(s => s.status === 'Blocked').length;
+      const repairCount = segments.filter(s => s.status === 'Repair').length;
+      const structuralCount = segments.filter(s => s.status === 'Structural').length;
+      const attentionCount = siltedCount + blockedCount + repairCount + structuralCount;
+
+      document.getElementById('statClear').innerText = clearCount;
+      document.getElementById('statAttention').innerText = attentionCount;
+      document.getElementById('statAttentionDetail').innerText = `● ${blockedCount} blocked · ${siltedCount} silted`;
+
+      document.getElementById('countClear').innerText = clearCount;
+      document.getElementById('countSilted').innerText = siltedCount;
+      document.getElementById('countBlocked').innerText = blockedCount;
+      document.getElementById('countRepair').innerText = repairCount;
+      document.getElementById('countStructural').innerText = structuralCount;
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      const pubBtn = document.getElementById('navPublic');
+      const inspBtn = document.getElementById('navInspector');
+      const pubSide = document.getElementById('publicSidebar');
+      const inspSide = document.getElementById('inspectorSidebar');
+      const floatBtn = document.getElementById('floatingReportBtn');
+      const previewCitizenBtn = document.getElementById('inspectorPreviewCitizenBtn');
+      const backToInspectorBtn = document.getElementById('backToInspectorBtn');
+      const publicNotifWrapper = document.getElementById('publicNotifWrapper');
+
+      if (mode === 'public') {
+        if (pubBtn) pubBtn.className = "px-5 py-2 rounded-full text-xs font-extrabold transition-all bg-white text-cyan-900 shadow-md";
+        if (inspBtn) inspBtn.className = "px-5 py-2 rounded-full text-xs font-extrabold transition-all text-white hover:text-cyan-200";
+        pubSide.classList.remove('hidden');
+        inspSide.classList.add('hidden');
+        floatBtn.classList.remove('hidden');
+        if (publicNotifWrapper) publicNotifWrapper.classList.remove('hidden');
+        if (previewCitizenBtn) previewCitizenBtn.classList.add('hidden');
+        if (backToInspectorBtn) {
+          if (isPreviewingCitizen) {
+            backToInspectorBtn.classList.remove('hidden');
+          } else {
+            backToInspectorBtn.classList.add('hidden');
+          }
+        }
+        if (drawControl && drawControlActive) {
+          map.removeControl(drawControl);
+          drawControlActive = false;
+        }
+        if (drawnItems) drawnItems.clearLayers();
+      } else {
+        isPreviewingCitizen = false;
+        if (backToInspectorBtn) backToInspectorBtn.classList.add('hidden');
+        closePublicDetailCard();
+        closeNotifPopover();
+        if (inspBtn) inspBtn.className = "px-5 py-2 rounded-full text-xs font-extrabold transition-all bg-white text-cyan-900 shadow-md";
+        if (pubBtn) pubBtn.className = "px-5 py-2 rounded-full text-xs font-extrabold transition-all text-white hover:text-cyan-200";
+        inspSide.classList.remove('hidden');
+        pubSide.classList.add('hidden');
+        floatBtn.classList.add('hidden');
+        if (publicNotifWrapper) publicNotifWrapper.classList.add('hidden');
+        if (previewCitizenBtn) previewCitizenBtn.classList.remove('hidden');
+        switchInspectorTab('segments');
+      }
+
+      if (map) {
+        setTimeout(() => map.invalidateSize(), 120);
+      }
+    }
+
+    function previewCitizenView() {
+      isPreviewingCitizen = true;
+      setMode('public');
+      showToast("Previewing Citizen View — click 'Back to Inspector' anytime to return.");
+    }
+
+    function switchInspectorTab(tab) {
+      const segBtn = document.getElementById('tabSegmentsBtn');
+      const edBtn = document.getElementById('tabEditorBtn');
+      const repBtn = document.getElementById('tabReportsBtn');
+
+      const segPan = document.getElementById('inspectorSegmentsPanel');
+      const edPan = document.getElementById('inspectorEditorPanel');
+      const repPan = document.getElementById('inspectorReportsPanel');
+
+      const activeCls = "pb-2 px-2.5 font-bold text-xs border-b-2 border-cyan-500 text-cyan-600 dark:text-cyan-400 whitespace-nowrap";
+      const inactiveCls = "pb-2 px-2.5 font-bold text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 whitespace-nowrap flex items-center gap-1.5";
+
+      segBtn.className = "pb-2 px-2.5 font-bold text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 whitespace-nowrap";
+      edBtn.className = "pb-2 px-2.5 font-bold text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 whitespace-nowrap";
+      repBtn.className = "relative " + inactiveCls;
+
+      segPan.classList.add('hidden');
+      edPan.classList.add('hidden');
+      repPan.classList.add('hidden');
+
+      if (tab === 'segments') {
+        segBtn.className = activeCls;
+        segPan.classList.remove('hidden');
+        renderInspectorSegmentList();
+      } else if (tab === 'editor') {
+        edBtn.className = activeCls;
+        edPan.classList.remove('hidden');
+      } else {
+        repBtn.className = "relative pb-2 px-2.5 font-bold text-xs border-b-2 border-cyan-500 text-cyan-600 dark:text-cyan-400 whitespace-nowrap flex items-center gap-1.5";
+        repPan.classList.remove('hidden');
+        renderCitizenReportsList();
+      }
+    }
+
+    function updatePinnedCoordinates(coords, flyToMap = false) {
+      tempPinCoords = [coords[0], coords[1]];
+      const formatted = `${tempPinCoords[0].toFixed(4)}, ${tempPinCoords[1].toFixed(4)}`;
+      const badge1 = document.getElementById('pinnedCoordsBadge');
+      const badge2 = document.getElementById('fullscreenCoordsBadge');
+      if (badge1) badge1.innerText = formatted;
+      if (badge2) badge2.innerText = formatted;
+
+      if (currentPinMarker) currentPinMarker.setLatLng(tempPinCoords);
+      if (miniMap && flyToMap) miniMap.flyTo(tempPinCoords, 17);
+      if (fullscreenPinMarker) fullscreenPinMarker.setLatLng(tempPinCoords);
+      if (fullscreenMiniMap && flyToMap) fullscreenMiniMap.flyTo(tempPinCoords, 17);
+    }
+
+    function handleAddressLocationChange() {
+      const brgy = (document.getElementById('reportBarangay')?.value || '').toLowerCase().trim();
+      const purok = (document.getElementById('reportPurok')?.value || '').toLowerCase().trim();
+      const street = (document.getElementById('reportStreet')?.value || '').toLowerCase().trim();
+      const landmark = (document.getElementById('reportLandmark')?.value || '').toLowerCase().trim();
+
+      let matchedCoords = null;
+      const searchSources = [landmark, street, purok, brgy];
+      for (const query of searchSources) {
+        if (!query) continue;
+        for (const key of Object.keys(subaAddressCoordinates)) {
+          if (query.includes(key) || key.includes(query)) {
+            matchedCoords = subaAddressCoordinates[key];
+            break;
+          }
+        }
+        if (matchedCoords) break;
+      }
+
+      if (matchedCoords) updatePinnedCoordinates(matchedCoords, true);
+    }
+
+    function openReportModal() {
+      document.getElementById('reportModal').classList.remove('hidden');
+      setTimeout(() => {
+        if (!miniMap) {
+          miniMap = L.map('miniPinMap').setView(tempPinCoords, 16);
+          L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenTopoMap'
+          }).addTo(miniMap);
+          currentPinMarker = L.marker(tempPinCoords, { draggable: true }).addTo(miniMap);
+          miniMap.on('click', (e) => {
+            updatePinnedCoordinates([e.latlng.lat, e.latlng.lng], false);
+          });
+          currentPinMarker.on('dragend', () => {
+            const pos = currentPinMarker.getLatLng();
+            updatePinnedCoordinates([pos.lat, pos.lng], false);
+          });
+        } else {
+          currentPinMarker.setLatLng(tempPinCoords);
+          miniMap.setView(tempPinCoords, 16);
+        }
+        miniMap.invalidateSize();
+      }, 150);
+    }
+
+    function closeReportModal() {
+      document.getElementById('reportModal').classList.add('hidden');
+    }
+
+    function openFullscreenPinModal() {
+      document.getElementById('fullscreenPinModal').classList.remove('hidden');
+      setTimeout(() => {
+        if (!fullscreenMiniMap) {
+          fullscreenMiniMap = L.map('fullscreenPinMap').setView(tempPinCoords, 17);
+          L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            maxZoom: 17,
+            attribution: '&copy; OpenTopoMap'
+          }).addTo(fullscreenMiniMap);
+          fullscreenPinMarker = L.marker(tempPinCoords, { draggable: true }).addTo(fullscreenMiniMap);
+          fullscreenMiniMap.on('click', (e) => {
+            updatePinnedCoordinates([e.latlng.lat, e.latlng.lng], false);
+          });
+          fullscreenPinMarker.on('dragend', () => {
+            const pos = fullscreenPinMarker.getLatLng();
+            updatePinnedCoordinates([pos.lat, pos.lng], false);
+          });
+        } else {
+          fullscreenPinMarker.setLatLng(tempPinCoords);
+          fullscreenMiniMap.setView(tempPinCoords, 17);
+        }
+        fullscreenMiniMap.invalidateSize();
+      }, 150);
+    }
+
+    function closeFullscreenPinModal() {
+      const m = document.getElementById('fullscreenPinModal');
+      if (m) m.classList.add('hidden');
+      if (miniMap && currentPinMarker) {
+        currentPinMarker.setLatLng(tempPinCoords);
+        miniMap.setView(tempPinCoords, 16);
+        setTimeout(() => miniMap.invalidateSize(), 100);
+      }
+    }
+
+    function openHotlineModal() {
+      document.getElementById('hotlineModal').classList.remove('hidden');
+    }
+
+    function closeHotlineModal() {
+      document.getElementById('hotlineModal').classList.add('hidden');
+    }
+
+    function submitCitizenReport(e) {
+      e.preventDefault();
+      const brgy = document.getElementById('reportBarangay').value.trim() || 'Suba';
+      const purok = document.getElementById('reportPurok').value.trim();
+      const street = document.getElementById('reportStreet').value.trim();
+      const landmark = document.getElementById('reportLandmark').value.trim();
+      const desc = document.getElementById('reportDesc').value.trim();
+
+      const locParts = [landmark, street, purok, `Brgy. ${brgy}`].filter(Boolean);
+      const loc = locParts.join(', ');
+
+      const newId = "REP-" + (103 + citizenReports.length + processedReportHistory.length);
+      const submittedAt = formatNowTimestamp();
+
+      const photos = pendingReportPhotos.length > 0
+        ? [...pendingReportPhotos]
+        : [{ url: `https://placehold.co/800x520/0891b2/ffffff?text=${encodeURIComponent(newId + ' - Citizen Report')}`, caption: `${newId} · ${loc}` }];
+
+      citizenReports.unshift({
+        id: newId,
+        location: loc,
+        desc: desc,
+        dateSubmitted: submittedAt,
+        status: "Pending",
+        verified: false,
+        verifiedAt: null,
+        verifiedBy: null,
+        hasUpdate: false,
+        isNewForInspector: true,
+        coords: [...tempPinCoords],
+        photos
+      });
+
+      document.getElementById('reportPurok').value = '';
+      document.getElementById('reportStreet').value = '';
+      document.getElementById('reportLandmark').value = '';
+      document.getElementById('reportDesc').value = '';
+      pendingReportPhotos = [];
+      const strip = document.getElementById('reportPhotoPreviewStrip');
+      if (strip) strip.innerHTML = '';
+      const fileInp = document.getElementById('reportPhoto');
+      if (fileInp) fileInp.value = '';
+
+      saveSharedState();
+      refreshAllReportUI();
+      closeReportModal();
+      showTopSubmissionBanner(`Report ${newId} has been submitted and is waiting for verification.`);
+    }
+
+    function toggleDarkMode() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      const pill = document.getElementById('themePill');
+      if (pill) {
+        if (isDark) {
+          pill.style.transform = 'translateX(32px)';
+          pill.innerText = '🌙';
+        } else {
+          pill.style.transform = 'translateX(0px)';
+          pill.innerText = '☀️';
+        }
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      if (map) map.invalidateSize();
+    });
+
+    window.onload = initMap;
+  </script>
+</body>
+</html>
